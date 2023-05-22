@@ -1,3 +1,4 @@
+'''
 
 # Pre-ARENA PyTorch Exercises
 
@@ -44,7 +45,8 @@ We will be using [Visual Studio Code](https://code.visualstudio.com/) as the off
 
 At some point you'll be added to a ARENA Slack and be able to ask questions there. If you need help before then, feel free to email Callum at `callum@arena.education` directly.
 
-```python
+'''
+# %%
 import math
 from einops import rearrange, repeat, reduce
 import torch as t
@@ -510,4 +512,3 @@ column_indexes = t.tensor([0, 2, 1, 0])
 actual = collect_columns(matrix, column_indexes)
 expected = t.tensor([[0, 2, 1, 0], [3, 5, 4, 3], [6, 8, 7, 6], [9, 11, 10, 9], [12, 14, 13, 12]])
 assert_all_equal(actual, expected)
-```
