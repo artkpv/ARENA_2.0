@@ -208,6 +208,7 @@ assert_all_close(actual, expected)
 def batched_dot_product_nd(a: t.Tensor, b: t.Tensor) -> t.Tensor:
     """Return the batched dot product of a and b, where the first dimension is the batch dimension.
 
+# %%
     That is, out[i] = dot(a[i], b[i]) for i in 0..len(a).
     a and b can have any number of dimensions greater than 1.
 
