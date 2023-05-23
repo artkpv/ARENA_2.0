@@ -5,13 +5,10 @@
     "python.testing.unittestEnabled": false,
     "python.testing.pytestEnabled": true,
     "python.analysis.extraPaths": [
-        "${workspaceFolder}/chapter0_fundamentals",
-        "${workspaceFolder}/chapter0_fundamentals/exercises",
+        // "${workspaceFolder}/chapter0_fundamentals",
+        // "${workspaceFolder}/chapter0_fundamentals/exercises",
         "${workspaceFolder}/chapter1_transformers",
         "${workspaceFolder}/chapter1_transformers/exercises",
-    ],
-    "python.autoComplete.extraPaths": [
-        "${workspaceFolder}/chapter0_fundamentals",
-        "${workspaceFolder}/chapter0_fundamentals/exercises",
+        "${workspaceFolder}/chapter1_transformers/exercises/part6_othellogpt/othello_world/mechanistic_interpretability",
     ]
 }
