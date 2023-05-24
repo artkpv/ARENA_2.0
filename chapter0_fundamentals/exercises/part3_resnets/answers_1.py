@@ -47,9 +47,12 @@ class ConvNet(nn.Module):
         self.sequencial = nn.Sequential(
 			nn.Conv2d(in_channels=1, out_channels=32, kernel_size=3, stride=1,padding=1),
 			nn.ReLU(),
-			nn.MaxPool2d(kernel_size=2, stride=2),
+			nn.MaxPool2d(kernel_size=2, stride=2, padding=0),
+
 			nn.Conv2d(in_channels=32, out_channels=64,kernel_size=3,padding=1,stride=1),
-			nn.MaxPool2d(kernel_size=2, stride=2),
+			nn.ReLU(),
+			nn.MaxPool2d(kernel_size=2, stride=2, padding=0),
+
 			nn.Flatten(),
 			nn.Linear(in_features=3136, out_features=128),
 			nn.Linear(in_features=128, out_features=10)
@@ -90,14 +93,14 @@ if MAIN:
     mnist_trainset, mnist_testset = get_mnist()
     mnist_trainloader = DataLoader(mnist_trainset, batch_size=64, shuffle=True)
     mnist_testloader = DataLoader(mnist_testset, batch_size=64, shuffle=False)
-# %%
-from tqdm.notebook import tqdm
-import time
-
-
-if MAIN:
-    for i in tqdm(range(100)):
-        time.sleep(0.01)
+#
+# from tqdm.notebook import tqdm
+# import time
+# 
+# 
+# if MAIN:
+#     for i in tqdm(range(100)):
+#         time.sleep(0.01)
 
 # %%
 if MAIN:
@@ -106,4 +109,67 @@ if MAIN:
     # Assuming that we are on a CUDA machine, this should print a CUDA device:
     print(device)
 
+# %%
+class LitConvNet(pl.LightningModule):
+    def __init__(self):
+        super().__init__()
+        self.convnet = ConvNet()
+
+    def training_step(self, batch: Tuple[t.Tensor, t.Tensor], batch_idx: int) -> t.Tensor:
+        '''
+        Here you compute and return the training loss and some additional metrics for e.g. the progress bar or logger.
+        '''
+        imgs, labels = batch
+        logits = self.convnet(imgs)
+        loss = F.cross_entropy(logits, labels)
+        self.log("train_loss", loss)
+        return loss
+
+    def configure_optimizers(self):
+        '''
+        Choose what optimizers and learning-rate schedulers to use in your optimization.
+        '''
+        optimizer = t.optim.Adam(self.parameters())
+        return optimizer
+
+# Set batch size
+
+if MAIN:
+    batch_size = 64
+    max_epochs = 3
+
+    # Create the model & training system
+    model = LitConvNet()
+
+    # Get dataloaders
+    trainset, testset = get_mnist(subset = 10)
+    trainloader = DataLoader(trainset, shuffle=True, batch_size=batch_size)
+    testloader = DataLoader(testset, shuffle=True, batch_size=batch_size)
+
+    # Get a logger, to record metrics during training
+    logger = CSVLogger(save_dir=os.getcwd() + "/logs", name="day4-convenet")
+
+    # Train the model (hint: here are some helpful Trainer arguments for rapid idea iteration)
+    trainer = pl.Trainer(
+        max_epochs=max_epochs,
+        logger=logger,
+        log_every_n_steps=1,
+    )
+    trainer.fit(model=model, train_dataloaders=trainloader)
+# %%
+if MAIN:
+    metrics = pd.read_csv(f"{trainer.logger.log_dir}/metrics.csv")
+    metrics.head()
+# %%
+if MAIN:
+    line(
+        metrics["train_loss"].values,
+        x=metrics["step"].values,
+        yaxis_range=[0, metrics["train_loss"].max() + 0.1],
+        labels={"x": "Batches seen", "y": "Cross entropy loss"},
+        title="ConvNet training on MNIST",
+        width=800,
+        hovermode="x unified",
+        template="ggplot2", # alternative aesthetic for your plots (-:
+    )
 # %%
