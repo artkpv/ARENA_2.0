@@ -1,5 +1,7 @@
 #%%
-import os; os.environ["ACCELERATE_DISABLE_RICH"] = "1"
+import os
+
+from pytorch_lightning.utilities.types import STEP_OUTPUT; os.environ["ACCELERATE_DISABLE_RICH"] = "1"
 import sys
 import torch as t
 from torch import Tensor
@@ -11,7 +13,7 @@ from dataclasses import dataclass
 from torchvision import datasets, transforms, models
 from torch.utils.data import DataLoader, Subset
 from tqdm.notebook import tqdm
-from typing import List, Tuple, Dict
+from typing import Any, List, Optional, Tuple, Dict
 from PIL import Image
 from IPython.display import display
 from pathlib import Path
@@ -37,6 +39,8 @@ from plotly_utils import line, plot_train_loss_and_test_accuracy_from_metrics
 device = t.device('cuda' if t.cuda.is_available() else 'cpu')
 
 MAIN = __name__ == "__main__"
+
+pl.seed_everything()
 
 
 # %%
@@ -76,31 +80,51 @@ if MAIN:
         transforms.Normalize((0.1307,), (0.3081,))
     ])
 
-def get_mnist(subset: int = 1):
+if MAIN:
+    data_augmentation_transform = transforms.Compose([
+       transforms.RandomRotation(degrees=15),
+       transforms.RandomResizedCrop(size=28, scale=(0.8, 1.2)),
+       transforms.RandomHorizontalFlip(p=0.5),
+       transforms.RandomVerticalFlip(p=0.5),
+       transforms.RandomAffine(degrees=0, translate=(0.1, 0.1)),
+       transforms.ToTensor(),
+       transforms.Normalize((0.1307,), (0.3081,))
+    ])
+
+def get_mnist(subset: int = 1, train_transform=None, test_transform=None):
+    if train_transform is None:
+        train_transform = MNIST_TRANSFORM
+    if test_transform is None:
+        test_transform = MNIST_TRANSFORM
+
     '''Returns MNIST training data, sampled by the frequency given in `subset`.'''
-    mnist_trainset = datasets.MNIST(root="./data", train=True, download=True, transform=MNIST_TRANSFORM)
-    mnist_testset = datasets.MNIST(root="./data", train=False, download=True, transform=MNIST_TRANSFORM)
+    mnist_trainset = datasets.MNIST(root="./data", train=True, download=True, transform=train_transform)
+    mnist_testset = datasets.MNIST(root="./data", train=False, download=True, transform=test_transform)
 
+    ts_l = len(mnist_trainset)
     if subset > 1:
-        mnist_trainset = Subset(mnist_trainset, indices=range(0, len(mnist_trainset), subset))
+        mnist_trainset = Subset(mnist_trainset, indices=range(0, ts_l, subset))
+        ts_l = len(mnist_trainset)
+        val_l = ts_l // 10
+        mnist_valset = Subset(mnist_trainset, indices=range(ts_l - val_l, ts_l))
+        mnist_trainset = Subset(mnist_trainset, indices=range(0, ts_l - val_l))
         mnist_testset = Subset(mnist_testset, indices=range(0, len(mnist_testset), subset))
+    else:
+        val_l = ts_l // 10
+        mnist_trainset = Subset(mnist_trainset, indices=range(0, ts_l - val_l))
+        mnist_valset = Subset(mnist_trainset, indices=range(ts_l - val_l, ts_l))
 
-    return mnist_trainset, mnist_testset
+    return mnist_trainset, mnist_testset, mnist_valset
 
+
+#%%
+from tqdm.notebook import tqdm
+import time
 
 
 if MAIN:
-    mnist_trainset, mnist_testset = get_mnist()
-    mnist_trainloader = DataLoader(mnist_trainset, batch_size=64, shuffle=True)
-    mnist_testloader = DataLoader(mnist_testset, batch_size=64, shuffle=False)
-#
-# from tqdm.notebook import tqdm
-# import time
-# 
-# 
-# if MAIN:
-#     for i in tqdm(range(100)):
-#         time.sleep(0.01)
+    for i in tqdm(range(100)):
+        time.sleep(0.01)
 
 # %%
 if MAIN:
@@ -109,67 +133,79 @@ if MAIN:
     # Assuming that we are on a CUDA machine, this should print a CUDA device:
     print(device)
 
+
 # %%
+@dataclass
+class ConvNetTrainingArgs():
+    '''
+    Defining this class implicitly creates an __init__ method, which sets arguments as 
+    given below, e.g. self.batch_size = 64. Any of these arguments can also be overridden
+    when you create an instance, e.g. args = ConvNetTrainingArgs(batch_size=128).
+    '''
+    batch_size: int = 64
+    max_epochs: int = 3
+    optimizer: t.optim.Optimizer = t.optim.Adam
+    learning_rate: float = 1e-3
+    log_dir: str = os.getcwd() + "/logs"
+    log_name: str = "day4-convenet"
+    log_every_n_steps: int = 1
+    sample: int = 10
+
+    def __post_init__(self):
+        '''
+        This code runs after the class is instantiated. It can reference things like
+        self.sample, which are defined in the __init__ block.
+        '''
+        trainset, testset, valset = get_mnist(subset=self.sample, train_transform=data_augmentation_transform, test_transform=MNIST_TRANSFORM)
+        self.trainloader = DataLoader(trainset, shuffle=True, batch_size=self.batch_size)
+        self.valloader = DataLoader(valset, shuffle=True, batch_size=self.batch_size)
+        self.testloader = DataLoader(testset, shuffle=False, batch_size=self.batch_size)
+        self.logger = CSVLogger(save_dir=self.log_dir, name=self.log_name)
+
+
 class LitConvNet(pl.LightningModule):
-    def __init__(self):
+    def __init__(self, args: ConvNetTrainingArgs):
         super().__init__()
         self.convnet = ConvNet()
+        self.args = args
 
     def training_step(self, batch: Tuple[t.Tensor, t.Tensor], batch_idx: int) -> t.Tensor:
-        '''
-        Here you compute and return the training loss and some additional metrics for e.g. the progress bar or logger.
-        '''
         imgs, labels = batch
         logits = self.convnet(imgs)
         loss = F.cross_entropy(logits, labels)
         self.log("train_loss", loss)
+
         return loss
 
     def configure_optimizers(self):
-        '''
-        Choose what optimizers and learning-rate schedulers to use in your optimization.
-        '''
-        optimizer = t.optim.Adam(self.parameters())
+        optimizer = self.args.optimizer(self.parameters(), lr=self.args.learning_rate)
         return optimizer
 
-# Set batch size
+    def validation_step(self, batch: Tuple[t.Tensor, t.Tensor], batch_idx: int):
+        imgs, labels = batch
+        logits = self.convnet(imgs)
 
+        # calculate acc
+        labels_hat = t.argmax(logits, dim=1)
+        val_acc = t.sum(labels == labels_hat).item() / (len(labels) * 1.0)
+
+        # log the outputs!
+        self.log('accuracy', val_acc)
+
+#%%
 if MAIN:
-    batch_size = 64
-    max_epochs = 3
+    args = ConvNetTrainingArgs()
+    model = LitConvNet(args)
 
-    # Create the model & training system
-    model = LitConvNet()
-
-    # Get dataloaders
-    trainset, testset = get_mnist(subset = 10)
-    trainloader = DataLoader(trainset, shuffle=True, batch_size=batch_size)
-    testloader = DataLoader(testset, shuffle=True, batch_size=batch_size)
-
-    # Get a logger, to record metrics during training
-    logger = CSVLogger(save_dir=os.getcwd() + "/logs", name="day4-convenet")
-
-    # Train the model (hint: here are some helpful Trainer arguments for rapid idea iteration)
     trainer = pl.Trainer(
-        max_epochs=max_epochs,
-        logger=logger,
-        log_every_n_steps=1,
+        max_epochs=args.max_epochs,
+        logger=args.logger,
+        log_every_n_steps=1
     )
-    trainer.fit(model=model, train_dataloaders=trainloader)
+    trainer.fit(model=model, train_dataloaders=args.trainloader, val_dataloaders=args.valloader)
 # %%
 if MAIN:
     metrics = pd.read_csv(f"{trainer.logger.log_dir}/metrics.csv")
-    metrics.head()
-# %%
-if MAIN:
-    line(
-        metrics["train_loss"].values,
-        x=metrics["step"].values,
-        yaxis_range=[0, metrics["train_loss"].max() + 0.1],
-        labels={"x": "Batches seen", "y": "Cross entropy loss"},
-        title="ConvNet training on MNIST",
-        width=800,
-        hovermode="x unified",
-        template="ggplot2", # alternative aesthetic for your plots (-:
-    )
+    plot_train_loss_and_test_accuracy_from_metrics(metrics, "Training ConvNet on MNIST data")
+
 # %%
