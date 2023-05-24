@@ -143,7 +143,7 @@ class ConvNetTrainingArgs():
     when you create an instance, e.g. args = ConvNetTrainingArgs(batch_size=128).
     '''
     batch_size: int = 64
-    max_epochs: int = 3
+    max_epochs: int = 15
     optimizer: t.optim.Optimizer = t.optim.Adam
     learning_rate: float = 1e-3
     log_dir: str = os.getcwd() + "/logs"
@@ -202,6 +202,7 @@ if MAIN:
         logger=args.logger,
         log_every_n_steps=1
     )
+    trainer.validate(model=model, dataloaders=args.valloader)
     trainer.fit(model=model, train_dataloaders=args.trainloader, val_dataloaders=args.valloader)
 # %%
 if MAIN:
