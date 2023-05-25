@@ -239,3 +239,146 @@ if MAIN:
     tests.test_adam(Adam)
 
 # %%
+class AdamW:
+    def __init__(
+        self,
+        params: Iterable[t.nn.parameter.Parameter],
+        lr: float = 0.001,
+        betas: Tuple[float, float] = (0.9, 0.999),
+        eps: float = 1e-08,
+        weight_decay: float = 0.0,
+    ):
+        '''Implements Adam.
+
+        Like the PyTorch version, but assumes amsgrad=False and maximize=False
+            https://pytorch.org/docs/stable/generated/torch.optim.Adam.html
+        '''
+        self.params = list(params)
+        self.weight_decay = weight_decay
+        self.lr = lr
+        self.beta1 = betas[0]
+        self.beta2 = betas[1]
+        self.eps = eps
+        self.vs = [t.zeros_like(p) for p in self.params]
+        self.ms = [t.zeros_like(p) for p in self.params]
+        self.t = 0
+
+    def zero_grad(self) -> None:
+        for p in self.params:
+            p.grad = None
+
+    @t.inference_mode()
+    def step(self) -> None:
+        self.t += 1
+        for i, (p, v, m) in enumerate(zip(self.params,self.vs,self.ms)):
+            g = p.grad
+            p = g - self.lr * self.weight_decay * p
+            m = m*self.beta1 + (1 - self.beta1) * g
+            v = v*self.beta2 + (1 - self.beta2) * g.pow(2)
+            self.vs[i] = v
+            self.ms[i] = m
+            m_hat = m / (1 - pow(self.beta1, self.t))
+            v_hat = v / (1 - pow(self.beta2, self.t))
+            p -= self.lr * m_hat / (v_hat.sqrt() + self.eps)
+        return self.params
+
+    def __repr__(self) -> str:
+        return f"AdamW(lr={self.lr}, beta1={self.beta1}, beta2={self.beta2}, eps={self.eps}, weight_decay={self.lmda})"
+
+
+
+if MAIN:
+    tests.test_adamw(AdamW)
+
+# %%
+
+def opt_fn(fn: Callable, xy: t.Tensor, optimizer_class, optimizer_hyperparams: dict, n_iters: int = 100):
+    '''Optimize the a given function starting from the specified point.
+
+    optimizer_class: one of the optimizers you've defined, either SGD, RMSprop, or Adam
+    optimzer_kwargs: keyword arguments passed to your optimiser (e.g. lr and weight_decay)
+    '''
+    # SOLUTION
+    assert xy.requires_grad
+
+    xys = t.zeros((n_iters, 2))
+    optimizer = optimizer_class([xy], **optimizer_hyperparams)
+
+    for i in range(n_iters):
+        xys[i] = xy.detach()
+        out = fn(xy[0], xy[1])
+        out.backward()
+        optimizer.step()
+        optimizer.zero_grad()
+
+    return xys
+
+if MAIN:
+    points = []
+
+    optimizer_list = [
+        (SGD, {"lr": 0.03, "momentum": 0.99}),
+        (RMSprop, {"lr": 0.02, "alpha": 0.99, "momentum": 0.8}),
+        (Adam, {"lr": 0.2, "betas": (0.99, 0.99), "weight_decay": 0.005}),
+    ]
+
+    for optimizer_class, params in optimizer_list:
+        xy = t.tensor([2.5, 2.5], requires_grad=True)
+        xys = opt_fn(pathological_curve_loss, xy=xy, optimizer_class=optimizer_class, optimizer_hyperparams=params)
+        points.append((xys, optimizer_class, params))
+
+    plot_fn_with_points(pathological_curve_loss, points=points)
+# %%
+def bivariate_gaussian(x, y, x_mean=0.0, y_mean=0.0, x_sig=1.0, y_sig=1.0):
+    norm = 1 / (2 * np.pi * x_sig * y_sig)
+    x_exp = (-1 * (x - x_mean) ** 2) / (2 * x_sig**2)
+    y_exp = (-1 * (y - y_mean) ** 2) / (2 * y_sig**2)
+    return norm * t.exp(x_exp + y_exp)
+
+def neg_trimodal_func(x, y):
+    z = -bivariate_gaussian(x, y, x_mean=1.0, y_mean=-0.5, x_sig=0.2, y_sig=0.2)
+    z -= bivariate_gaussian(x, y, x_mean=-1.0, y_mean=0.5, x_sig=0.2, y_sig=0.2)
+    z -= bivariate_gaussian(x, y, x_mean=-0.5, y_mean=-0.8, x_sig=0.2, y_sig=0.2)
+    return z
+
+
+if MAIN:
+    #plot_fn(neg_trimodal_func, x_range=(-2, 2), y_range=(-2, 2))
+    points = []
+
+    optimizer_list = [
+        (SGD, {"lr": 0.03, "momentum": 0.99}),
+        (RMSprop, {"lr": 0.02, "alpha": 0.99, "momentum": 0.8}),
+        (Adam, {"lr": 0.2, "betas": (0.99, 0.99), "weight_decay": 0.005}),
+    ]
+
+    for optimizer_class, params in optimizer_list:
+        xy = t.tensor([-3.0, -8.0], requires_grad=True)
+        xys = opt_fn(neg_trimodal_func, xy=xy, optimizer_class=optimizer_class, optimizer_hyperparams=params)
+        points.append((xys, optimizer_class, params))
+
+    plot_fn_with_points(neg_trimodal_func, points=points)
+
+#%%
+def rosenbrocks_banana_func(x: t.Tensor, y: t.Tensor, a=1, b=100) -> t.Tensor:
+    return (a - x) ** 2 + b * (y - x**2) ** 2 + 1
+
+if MAIN:
+    plot_fn(rosenbrocks_banana_func, x_range=(-2, 2), y_range=(-1, 3), log_scale=True)
+    points = []
+
+    optimizer_list = [
+        (SGD, {"lr": 0.03, "momentum": 0.99}),
+        (RMSprop, {"lr": 0.02, "alpha": 0.99, "momentum": 0.8}),
+        (Adam, {"lr": 0.2, "betas": (0.99, 0.99), "weight_decay": 0.005}),
+    ]
+
+    for optimizer_class, params in optimizer_list:
+        xy = t.tensor([0.0, 0.0], requires_grad=True)
+        xys = opt_fn(rosenbrocks_banana_func, xy=xy, optimizer_class=optimizer_class, optimizer_hyperparams=params)
+        points.append((xys, optimizer_class, params))
+
+    plot_fn_with_points(rosenbrocks_banana_func, points=points, x_range=(-2, 2), y_range=(-1, 3))
+
+
+# %%
