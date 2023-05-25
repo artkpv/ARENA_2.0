@@ -186,3 +186,56 @@ if MAIN:
     tests.test_rmsprop(RMSprop)
 
 # %%
+class Adam:
+    def __init__(
+        self,
+        params: Iterable[t.nn.parameter.Parameter],
+        lr: float = 0.001,
+        betas: Tuple[float, float] = (0.9, 0.999),
+        eps: float = 1e-08,
+        weight_decay: float = 0.0,
+    ):
+        '''Implements Adam.
+
+        Like the PyTorch version, but assumes amsgrad=False and maximize=False
+            https://pytorch.org/docs/stable/generated/torch.optim.Adam.html
+        '''
+        self.params = list(params)
+        self.weight_decay = weight_decay
+        self.lr = lr
+        self.beta1 = betas[0]
+        self.beta2 = betas[1]
+        self.eps = eps
+        self.vs = [t.zeros_like(p) for p in self.params]
+        self.ms = [t.zeros_like(p) for p in self.params]
+        self.t = 0
+
+    def zero_grad(self) -> None:
+        for p in self.params:
+            p.grad = None
+
+    @t.inference_mode()
+    def step(self) -> None:
+        self.t += 1
+        for i, (p, v, m) in enumerate(zip(self.params,self.vs,self.ms)):
+            g = p.grad
+            if self.weight_decay != 0:
+                g = g + self.weight_decay * p
+            m = m*self.beta1 + (1 - self.beta1) * g
+            v = v*self.beta2 + (1 - self.beta2) * g.pow(2)
+            self.vs[i] = v
+            self.ms[i] = m
+            m_hat = m / (1 - pow(self.beta1, self.t))
+            v_hat = v / (1 - pow(self.beta2, self.t))
+            p -= self.lr * m_hat / (v_hat.sqrt() + self.eps)
+        return self.params
+
+    def __repr__(self) -> str:
+        return f"Adam(lr={self.lr}, beta1={self.beta1}, beta2={self.beta2}, eps={self.eps}, weight_decay={self.lmda})"
+
+
+
+if MAIN:
+    tests.test_adam(Adam)
+
+# %%
