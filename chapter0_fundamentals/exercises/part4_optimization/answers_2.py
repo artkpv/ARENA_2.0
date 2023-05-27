@@ -68,7 +68,7 @@ class ResNetFinetuningArgs():
     optimizer: t.optim.Optimizer = t.optim.Adam
     learning_rate: float = 1e-3
     log_dir: str = os.getcwd() + "/logs"
-    log_name: str = "day5-resnet"
+    log_name: str = "day4-resnet"
     log_every_n_steps: int = 1
     n_classes: int = 10
     subset: int = 10
@@ -195,38 +195,3 @@ if MAIN:
     )
     trainer.fit(model=model, train_dataloaders=args.trainloader, val_dataloaders=args.testloader)
     wandb.finish()
-
-#%% 
-if MAIN:
-    sweep_config = dict(
-        method = 'random',
-        metric = dict(name = 'accuracy', goal = 'maximize'),
-        parameters = dict(
-            batch_size = dict(values = [32, 64, 128, 256]),
-            max_epochs = dict(min = 1, max = 3),
-            learning_rate = dict(max = 1e-1, min = 1e-4, distribution = 'log_uniform_values'),
-        )
-    )
-    tests.test_sweep_config(sweep_config)
-
-def train():
-    args = ResNetFinetuningArgsWandb(trainset=cifar_trainset_small, testset=cifar_testset_small)
-    args.batch_size=wandb.config["batch_size"]
-    args.max_epochs=wandb.config["max_epochs"]
-    args.learning_rate=wandb.config["learning_rate"]
-
-    model = LitResNet(args)
-
-    trainer = pl.Trainer(
-        max_epochs=args.max_epochs,
-        max_steps=args.max_steps,
-        logger=args.logger,
-        log_every_n_steps=args.log_every_n_steps
-    )
-    trainer.fit(model=model, train_dataloaders=args.trainloader, val_dataloaders=args.testloader)
-    wandb.finish()
-
-# %%
-if MAIN:
-    sweep_id = wandb.sweep(sweep=sweep_config, project='day4-resnet-sweep')
-    wandb.agent(sweep_id=sweep_id, function=train, count=3)
