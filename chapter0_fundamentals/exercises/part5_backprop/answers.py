@@ -338,4 +338,5 @@ if MAIN:
     grad_tracking_enabled = True
     assert not b.requires_grad, "should not require grad if grad tracking globally disabled"
     assert b.recipe is None, "should not create recipe if grad tracking globally disabled"
+
 # %%
