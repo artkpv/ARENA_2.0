@@ -40,3 +40,14 @@ def train():
 if MAIN:
     sweep_id = wandb.sweep(sweep=sweep_config, project='day4-resnet-sweep')
     wandb.agent(sweep_id=sweep_id, function=train, count=5)
+    '''
+    Best:
+        Key
+        Value
+        batch_size
+        256
+        learning_rate
+        0.0024223055861088525
+        max_epochs
+        2
+    '''
