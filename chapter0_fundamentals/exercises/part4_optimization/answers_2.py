@@ -206,6 +206,7 @@ if MAIN:
             max_epochs = dict(min = 1, max = 3),
             learning_rate = dict(max = 1e-1, min = 1e-4, distribution = 'log_uniform_values'),
         )
+    )
     tests.test_sweep_config(sweep_config)
 
 def train():
