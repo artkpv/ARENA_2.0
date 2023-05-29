@@ -1,6 +1,6 @@
 {
     "python.testing.pytestArgs": [
-        "chapter0_fundamentals"
+        "chapter1_transformers"
     ],
     "python.testing.unittestEnabled": false,
     "python.testing.pytestEnabled": true,
