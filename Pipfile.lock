@@ -1,7 +1,7 @@
 {
     "_meta": {
         "hash": {
-            "sha256": "e18e0e2de90f13cf279b73bce2f3877bec41bb6218fe8df14ce993a7f0b7ca75"
+            "sha256": "44b229602601d1c35efea9bbd8b1bb027ffb1ea3a866c70c227c7b26ba0b3143"
         },
         "pipfile-spec": 6,
         "requires": {
@@ -457,6 +457,11 @@
             ],
             "markers": "python_full_version >= '3.7.0'",
             "version": "==3.1.0"
+        },
+        "circuitsvis": {
+            "git": "https://github.com/callummcdougall/CircuitsVis.git",
+            "ref": "5469cc5177cb11139470b18b3dc8ff174c3acf8d",
+            "subdirectory": "python#egg=circuitsvis"
         },
         "click": {
             "hashes": [
