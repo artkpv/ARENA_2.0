@@ -42,6 +42,8 @@ MAIN = __name__ == '__main__'
 
 if MAIN:
     reference_gpt2 = HookedTransformer.from_pretrained("gpt2-small", fold_ln=False, center_unembed=False, center_writing_weights=False)
+#%%
+from pprint import pp
 
 #%%
 if MAIN:
@@ -618,4 +620,16 @@ if MAIN:
     )
     trainer.fit(model=litmodel, train_dataloaders=litmodel.data_loader)
     wandb.finish()
+# %%
+if MAIN:
+    toks = tokenized_dataset[:]["tokens"].flatten()
+
+    d_vocab = model.cfg.d_vocab
+    freqs = t.bincount(toks, minlength=d_vocab)
+    probs = freqs.float() / freqs.sum()
+
+    distn = t.distributions.categorical.Categorical(probs=probs)
+    entropy = distn.entropy()
+
+    print(f"Entropy of training data = {entropy}")
 # %%
