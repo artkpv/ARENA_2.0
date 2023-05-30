@@ -1,5 +1,6 @@
 #%%
-import os; os.environ['ACCELERATE_DISABLE_RICH'] = "1"; os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
+import os; os.environ['ACCELERATE_DISABLE_RICH'] = "1"
+# os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
 import sys
 import einops
 from dataclasses import dataclass
@@ -11,7 +12,7 @@ import torch.nn as nn
 import numpy as np
 import math
 from tqdm.notebook import tqdm
-from typing import Tuple, List, Optional
+from typing import Tuple, List, Optional, Dict
 from jaxtyping import Float, Int
 from transformers.models.gpt2.tokenization_gpt2_fast import GPT2TokenizerFast
 from collections import defaultdict
@@ -24,7 +25,6 @@ from pytorch_lightning.loggers import WandbLogger
 import wandb
 from pathlib import Path
 import webbrowser
-from pprint import pp
 
 # Make sure exercises are in the path
 chapter = r"chapter1_transformers"
@@ -35,13 +35,13 @@ if str(exercises_dir) not in sys.path: sys.path.append(str(exercises_dir))
 from plotly_utils import imshow
 # import part1_transformer_from_scratch.solutions as solutions
 
-# Add this to your workspace settings, so typechecker sees these modules:
-# "python.analysis.extraPaths": ["${workspaceFolder}/chapter1_transformers/exercises"]
-
 device = t.device("cuda" if t.cuda.is_available() else "cpu")
 
 MAIN = __name__ == '__main__'
 
+
+if MAIN:
+    reference_gpt2 = HookedTransformer.from_pretrained("gpt2-small", fold_ln=False, center_unembed=False, center_writing_weights=False)
 
 #%%
 if MAIN:
@@ -518,4 +518,104 @@ if MAIN:
         test_string += reference_gpt2.tokenizer.decode(demo_logits[-1, -1].argmax())
 
     print(test_string)
+
+# %%
+if MAIN:
+    model_cfg = Config(
+        debug=False, 
+        d_model=256, 
+        n_heads=4, 
+        d_head=64, 
+        d_mlp=1024, 
+        n_layers=2, 
+        n_ctx=256, 
+        d_vocab=reference_gpt2.cfg.d_vocab
+    )
+    model = DemoTransformer(model_cfg)
+# %%
+@dataclass
+class TransformerTrainingArgs():
+    batch_size = 8
+    max_epochs = 1
+    max_steps = 1000
+    log_every = 10
+    lr = 1e-3
+    weight_decay = 1e-2
+    log_dir: str = os.getcwd() + "/logs"
+    log_name: str = "day1-transformer"
+    run_name: Optional[str] = None
+    log_every_n_steps: int = 1
+
+
+if MAIN:
+    args = TransformerTrainingArgs()
+
+# %%
+if MAIN:
+    dataset = datasets.load_dataset("NeelNanda/pile-10k", split="train").remove_columns("meta")
+    print(dataset)
+    print(dataset[0]['text'][:200])
+# %%
+if MAIN:
+    tokenized_dataset = tokenize_and_concatenate(dataset, reference_gpt2.tokenizer, streaming=False, max_length=model.cfg.n_ctx, column_name="text", add_bos_token=True, num_proc=4)
+    data_loader = DataLoader(tokenized_dataset, batch_size=args.batch_size, shuffle=True, num_workers=4, pin_memory=True)
+# %%
+if MAIN:
+    first_batch = data_loader.dataset[:args.batch_size]
+
+    print(first_batch.keys())
+    print(first_batch['tokens'].shape)
+# %%
+class LitTransformer(pl.LightningModule):
+    def __init__(self, args: TransformerTrainingArgs, model: DemoTransformer, data_loader: DataLoader):
+        super().__init__()
+        self.model = model
+        self.cfg = model.cfg
+        self.args = args
+        self.data_loader = data_loader
+
+    def forward(self, tokens: Int[Tensor, "batch position"]) -> Float[Tensor, "batch position d_vocab"]:
+        logits = self.model(tokens)
+        return logits
+
+    def training_step(self, batch: Dict[str, Tensor], batch_idx: int) -> Float[Tensor, ""]:
+        '''
+        Here you compute and return the training loss and some additional metrics for e.g. 
+        the progress bar or logger.
+        '''
+        logits = self.model(batch['tokens']) 
+        log_probs = get_log_probs(logits, batch['tokens'])
+        loss = -log_probs.mean()
+        self.log('Train_loss', loss)
+        return loss
+
+    def configure_optimizers(self):
+        '''
+        Choose what optimizers and learning-rate schedulers to use in your optimization.
+        '''
+        return t.optim.AdamW(
+            params=self.parameters(),
+            lr=self.args.lr, 
+            weight_decay=self.args.weight_decay
+        )
+
+    def train_dataloader(self):
+        return self.data_loader
+
+# %%
+if MAIN:
+    litmodel = LitTransformer(args, model, data_loader)
+    logger = WandbLogger(
+        save_dir=args.log_dir,
+        project=args.log_name,
+        name=args.run_name,
+        )
+
+    trainer = pl.Trainer(
+        max_epochs=args.max_epochs,
+        logger=logger,
+        log_every_n_steps=args.log_every_n_steps
+    )
+    trainer.fit(model=litmodel, train_dataloaders=litmodel.data_loader)
+    wandb.finish()
 # %%
