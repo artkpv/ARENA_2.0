@@ -43,6 +43,8 @@ MAIN = __name__ == '__main__'
 if MAIN:
     reference_gpt2 = HookedTransformer.from_pretrained("gpt2-small", fold_ln=False, center_unembed=False, center_writing_weights=False)
 #%%
+
+wandb.login(relogin=True)
 from pprint import pp
 
 #%%
