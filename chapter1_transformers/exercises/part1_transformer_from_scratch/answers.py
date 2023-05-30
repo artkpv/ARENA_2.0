@@ -247,9 +247,9 @@ class Embed(nn.Module):
         nn.init.normal_(self.W_E, std=self.cfg.init_range)
 
     def forward(self, tokens: Int[Tensor, "batch position"]) -> Float[Tensor, "batch position d_model"]:
-        if self.cfg.debug:
-            print(tokens.shape)
-            print(self.W_E.shape)
+        #if self.cfg.debug:
+        #    print(tokens.shape)
+        #    print(self.W_E.shape)
         #return nn.functional.one_hot(tokens, num_classes=self.W_E.shape[0]).to(t.float) @ self.W_E
         return self.W_E[tokens]
 
@@ -269,9 +269,9 @@ class PosEmbed(nn.Module):
     def forward(
             self, tokens: Int[Tensor, "batch position"]
     ) -> Float[Tensor, "batch position d_model"]:
-        if self.cfg.debug:
-            print(f"{tokens.shape=}")
-            print(f"{self.W_pos.shape=}")
+        #if self.cfg.debug:
+        #    print(f"{tokens.shape=}")
+        #    print(f"{self.W_pos.shape=}")
         return einops.repeat(
             self.W_pos[:tokens.shape[1]],
             'n d -> b n d',
@@ -321,10 +321,10 @@ class Attention(nn.Module):
     ) -> Float[Tensor, "batch posn d_model"]:
         n_heads, d_model, d_head = self.W_Q.shape
         resid_broadcased = einops.repeat(normalized_resid_pre, 'b p dm -> b p h dm', h=n_heads)
-        if self.cfg.debug:
-            print(f'{resid_broadcased.shape=}')
-            print(f'{self.W_Q.shape=}')
-            print(f'{self.W_K.shape=}')
+        #if self.cfg.debug:
+        #    print(f'{resid_broadcased.shape=}')
+        #    print(f'{self.W_Q.shape=}')
+        #    print(f'{self.W_K.shape=}')
 
         # Step 1 
         query = einops.einsum(
@@ -336,8 +336,8 @@ class Attention(nn.Module):
             self.W_K,
             'b p h dm, h dm dh -> b p h dh'
         ) + self.b_K
-        if self.cfg.debug:
-            print(f'{query.shape=}', f'{key.shape=}')
+        #if self.cfg.debug:
+        #    print(f'{query.shape=}', f'{key.shape=}')
         attn_scores = einops.einsum(
             query,
             key,
@@ -346,8 +346,8 @@ class Attention(nn.Module):
         attn_scores /= t.sqrt(t.tensor(d_head))
         attn_scores = self.apply_causal_mask(attn_scores)
         attn_scores = attn_scores.softmax(dim=(-1))
-        if self.cfg.debug:
-            print(f'{attn_scores.shape=}')
+        #if self.cfg.debug:
+        #    print(f'{attn_scores.shape=}')
 
         # Step 2 
         value = einops.einsum(
@@ -355,22 +355,22 @@ class Attention(nn.Module):
             self.W_V,
             'b p h dm, h dm dh ->  b p h dh'
         ) + self.b_V
-        if self.cfg.debug:
-            print(f'{value.shape=}')
+        #if self.cfg.debug:
+        #    print(f'{value.shape=}')
         z = einops.einsum(
             attn_scores,
             value,
             'b h sq p, b p h dh -> b h sq dh'
         )
-        if self.cfg.debug:
-            print(f'{z.shape=}')
+        #if self.cfg.debug:
+        #    print(f'{z.shape=}')
         x = einops.einsum(
             z,
             self.W_O,
             'b h sq dh, h dh dm  -> b sq dm'
         ) + self.b_O
-        if self.cfg.debug:
-            print(f'{x.shape=}')
+        #if self.cfg.debug:
+        #    print(f'{x.shape=}')
         return x
 
 
@@ -669,14 +669,16 @@ class TransformerSampler:
         kwargs are passed to sample_next_token, to give detailed instructions on how 
         new tokens are chosen.
         '''
+        model.eval()
         tokens = self.tokenizer.encode(prompt)
-        tokens = t.tensor(tokens)
+        tokens = t.tensor(tokens, device=device)
         for i in range(max_tokens_generated):
-            logits = self.model.forward(tokens.reshape(1,-1))
+            logits = self.model.forward(tokens.reshape(1,-1))[0,-1]
             new_token = self.sample_next_token(tokens, logits, **kwargs)
+            new_token = t.tensor([new_token],device=device)
             if new_token == self.tokenizer.eos_token_id:
                 break
-            tokens.append(new_token)
+            tokens = t.cat([tokens, new_token], dim=-1)
         return self.tokenizer.decode(tokens)
 
     @t.inference_mode()
@@ -750,35 +752,66 @@ class TransformerSampler:
         '''
         Applies temperature scaling to the logits.
         '''
-        pass
+        if temperature <= 0:
+            return logits
+        return logits / temperature
 
     @staticmethod
     def apply_frequency_penalty(input_ids: Int[Tensor, "seq_len"], logits: Float[Tensor, "d_vocab"], freq_penalty: float) -> Float[Tensor, "d_vocab"]:
         '''
         Applies a frequency penalty to the logits.
         '''
-        pass
+        bins = t.bincount(input_ids, minlength=logits.shape[0])
+        return logits - freq_penalty * bins
+        
 
     @staticmethod
     def sample_basic(logits: Float[Tensor, "d_vocab"]) -> int:
         '''
         Samples from the distribution defined by the logits.
         '''
-        pass
+        k = t.distributions.categorical.Categorical(logits=logits).sample()
+        return k
+        
 
     @staticmethod
     def sample_top_k(logits: Float[Tensor, "d_vocab"], k: int) -> int:
         '''
         Samples from the top k most likely tokens.
         '''
-        pass
+        values, indices = logits=t.topk(logits, k)
+        k = t.distributions.categorical.Categorical(logits=values).sample()
+        return indices[k].item()
+
 
     @staticmethod
     def sample_top_p(logits: Float[Tensor, "d_vocab"], top_p: float, min_tokens_to_keep: int = 1) -> int:
         '''
         Samples from the most likely tokens which make up at least p cumulative probability.
         '''
-        pass
+        # logits_sorted, indices = logits.sort(descending=True, stable=True)
+        # cumul_probs = logits_sorted.softmax(-1).cumsum(-1)
+        # n_keep = t.searchsorted(cumul_probs, top_p, side="right").item() + 1
+        # n_keep = max(n_keep, min_tokens_to_keep)
+        # keep_idx = indices[:n_keep]
+        # keep_logits = logits[keep_idx]
+        # sample = t.distributions.categorical.Categorical(logits=keep_logits).sample()
+        # return keep_idx[sample].item()
+
+        # Slow:
+        probs = logits.softmax(dim=-1)
+        sorted_, indices = probs.sort(descending=True, dim=-1)
+        cut_len = 1
+        cut_sum = sorted_[0]
+        while cut_len <= len(sorted_) and cut_sum < top_p:
+            cut_len += 1
+            cut_sum += sorted_[cut_len-1]
+        cut_len = max(cut_len, min_tokens_to_keep)
+        kept = logits[indices[:cut_len]]
+        k = t.distributions.categorical.Categorical(logits=kept).sample()
+        return indices[k].item()
+        
+
 
 # %%
 if MAIN:
@@ -794,4 +827,139 @@ if MAIN:
     assert output == expected
 
     print("Tests passed!")
+
+# %%
+if MAIN:
+    prompt = "John and Mary went to the"
+    input_ids = tokenizer.encode(prompt, return_tensors="pt").to(device)
+    logits = model(input_ids)[0, -1]
+
+    expected_top_5 = {
+        " church": 0.0648,
+        " house": 0.0367,
+        " temple": 0.0145,
+        " same": 0.0104,
+        " Church": 0.0097
+    }
+    frequency_of_top_5 = defaultdict(int)
+
+    N = 10_000
+    for _ in tqdm(range(N)):
+        token = TransformerSampler.sample_next_token(input_ids.squeeze(), logits)
+        frequency_of_top_5[tokenizer.decode(token)] += 1
+
+    for word in expected_top_5:
+        expected_freq = expected_top_5[word]
+        observed_freq = frequency_of_top_5[word] / N
+        print(f"Word: {word!r:<9}. Expected freq {expected_freq:.4f}, observed freq {observed_freq:.4f}")
+        assert abs(observed_freq - expected_freq) < 0.01, "Try increasing N if this fails by a small amount."
+
+    print("Tests passed!")
+# %%
+if MAIN:
+    logits = t.tensor([1, 2]).log()
+
+    cold_logits = TransformerSampler.apply_temperature(logits, temperature=0.001)
+    print('A low temperature "sharpens" or "peaks" the distribution: ', cold_logits)
+    t.testing.assert_close(cold_logits, 1000.0 * logits)
+
+    hot_logits = TransformerSampler.apply_temperature(logits, temperature=1000.0)
+    print("A high temperature flattens the distribution: ", hot_logits)
+    t.testing.assert_close(hot_logits, 0.001 * logits)
+
+    print("Tests passed!")
+# %%
+if MAIN:
+    bieber_prompt = "And I was like Baby, baby, baby, oh Like, Baby, baby, baby, no Like, Baby, baby, baby, oh I thought you'd always be mine, mine"
+    input_ids = tokenizer.encode(bieber_prompt, return_tensors="pt")
+    logits = t.ones(tokenizer.vocab_size)
+    penalized_logits = TransformerSampler.apply_frequency_penalty(input_ids.squeeze(), logits, 2.0)
+
+    assert penalized_logits[5156].item() == -11, "Expected 6 occurrences of ' baby' with leading space, 1-2*6=-11"
+    assert penalized_logits[14801].item() == -5, "Expected 3 occurrences of ' Baby' with leading space, 1-2*3=-5"
+
+    print("Tests passed!")
+# %%
+if MAIN:
+    sampler = TransformerSampler(model, tokenizer)
+
+    N_RUNS = 1
+    your_prompt = "Jingle bells, jingle bells, jingle all the way"
+    cases = [
+        ("High freq penalty", dict(frequency_penalty=100.0)),
+        ("Negative freq penalty", dict(frequency_penalty=-3.0)),
+        ("Too hot!", dict(temperature=2.0)),
+        ("Pleasantly cool", dict(temperature=0.7)),
+        ("Pleasantly warm", dict(temperature=0.9)),
+        ("Too cold!", dict(temperature=0.01)),
+    ]
+
+    table = Table("Name", "Kwargs", "Output", title="Sampling - Manual Testing")
+
+    for (name, kwargs) in cases:
+        for i in range(N_RUNS):
+            output = sampler.sample(your_prompt, max_tokens_generated=24, **kwargs)
+            table.add_row(name, repr(kwargs), repr(output) + "\n")
+
+    rprint(table)
+# %%
+if MAIN:
+    prompt = "John and Mary went to the"
+    input_ids = tokenizer.encode(prompt, return_tensors="pt").to(device)
+    logits = model(input_ids)[0, -1]
+
+    expected_top_5 = {
+        " church": 0.0648,
+        " house": 0.0367,
+        " temple": 0.0145,
+        " same": 0.0104,
+        " Church": 0.0097
+    }
+    topk_5_sum = sum(expected_top_5.values())
+
+    observed_freqs = defaultdict(int)
+
+    N = 10000
+    for _ in tqdm(range(N)):
+        token = TransformerSampler.sample_next_token(input_ids.squeeze(), logits, top_k=5)
+        observed_freqs[tokenizer.decode(token)] += 1
+
+    for word in expected_top_5:
+        expected_freq = expected_top_5[word] / topk_5_sum
+        observed_freq = observed_freqs[word] / N
+        print(f"Word: {word!r:<9}. Expected freq = {expected_freq:.4f}, observed freq = {observed_freq:.4f}")
+        assert abs(observed_freq - expected_freq) < 0.015, "Try increasing N if this fails by a small amount."
+# %%
+
+if MAIN:
+    sampler = TransformerSampler(model, tokenizer)
+
+    your_prompt = "In a shocking finding, scientist discovered a herd of unicorns living in a remote, previously unexplored valley, in the Andes Mountains. Even more surprising to the researchers was the fact that the unicorns spoke perfect English."
+    output = sampler.sample(your_prompt, temperature=0.7, top_k=40, max_tokens_generated=64)
+    rprint(f"Your model said:\n\n[bold dark_orange]{output}")
+# %%
+if MAIN:
+    prompt = "John and Mary went to the"
+    input_ids = tokenizer.encode(prompt, return_tensors="pt").to(device)
+    logits = model(input_ids)[0, -1]
+
+    expected_top_10pct = {
+        " church": 0.0648,
+        " house": 0.0367, # These are the two most likely tokens, and add up to >10%
+    }
+    top_10pct_sum = sum(expected_top_10pct.values())
+
+    observed_freqs = defaultdict(int)
+
+    N = 10000
+    for _ in tqdm(range(N)):
+        token = TransformerSampler.sample_next_token(input_ids.squeeze(), logits, top_p=0.1)
+        observed_freqs[tokenizer.decode(token)] += 1
+
+    for word in expected_top_10pct:
+        expected_freq = expected_top_10pct[word] / top_10pct_sum
+        observed_freq = observed_freqs[word] / N
+        print(f"Word: {word!r:<9}. Expected freq {expected_freq:.4f}, observed freq {observed_freq:.4f}")
+        assert abs(observed_freq - expected_freq) < 0.01, "Try increasing N if this fails by a small amount."
+
 # %%
