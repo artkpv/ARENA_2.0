@@ -262,11 +262,17 @@ class PosEmbed(nn.Module):
         self.W_pos = nn.Parameter(t.empty((cfg.n_ctx, cfg.d_model)))
         nn.init.normal_(self.W_pos, std=self.cfg.init_range)
 
-    def forward(self, tokens: Int[Tensor, "batch position"]) -> Float[Tensor, "batch position d_model"]:
+    def forward(
+            self, tokens: Int[Tensor, "batch position"]
+    ) -> Float[Tensor, "batch position d_model"]:
         if self.cfg.debug:
             print(f"{tokens.shape=}")
             print(f"{self.W_pos.shape=}")
-        return einops.repeat(self.W_pos[:tokens.shape[1]], 'n d -> b n d', b=tokens.shape[0])
+        return einops.repeat(
+            self.W_pos[:tokens.shape[1]],
+            'n d -> b n d',
+            b=tokens.shape[0]
+        )
 
 if MAIN:
     rand_int_test(PosEmbed, [2, 4])
@@ -285,6 +291,7 @@ if MAIN:
 # 
 
 #%%
+
 class Attention(nn.Module):
     IGNORE: Float[Tensor, ""]
 
@@ -309,21 +316,58 @@ class Attention(nn.Module):
         self, normalized_resid_pre: Float[Tensor, "batch posn d_model"]
     ) -> Float[Tensor, "batch posn d_model"]:
         n_heads, d_model, d_head = self.W_Q.shape
-        resid_broadcased = einops.repeat(normalized_resid_pre, 'b p d -> b p h d', h=n_heads)
+        resid_broadcased = einops.repeat(normalized_resid_pre, 'b p dm -> b p h dm', h=n_heads)
+        if self.cfg.debug:
+            print(f'{resid_broadcased.shape=}')
+            print(f'{self.W_Q.shape=}')
+            print(f'{self.W_K.shape=}')
 
         # Step 1 
-        query = resid_broadcased @ self.W_Q + self.b_Q  # b p h d_h
-        key = resid_broadcased @ self.W_K + self.b_K  # b p h d_h
-        query = einops.rearrange(query, 'b p h d_h -> b h p d_h')
-        key = einops.rearrange(key, 'b p h d_h -> b h d_h p')
-        attn_scores =  query @ key
-        attn_scores /= t.sqrt(d_head)
-        attn_scores =  self.apply_causal_mask(attn_scores)
-        attn_scores.softmax(dim=(-1))
+        query = einops.einsum(
+            resid_broadcased, self.W_Q , 
+            'b p h dm, h dm dh -> b p h dh'
+        ) + self.b_Q
+        key = einops.einsum(
+            resid_broadcased,
+            self.W_K,
+            'b p h dm, h dm dh -> b p h dh'
+        ) + self.b_K
+        if self.cfg.debug:
+            print(f'{query.shape=}', f'{key.shape=}')
+        attn_scores = einops.einsum(
+            query,
+            key,
+            'b sq h dh, b sk h dh -> b h sq sk'
+        )
+        attn_scores /= t.sqrt(t.tensor(d_head))
+        attn_scores = self.apply_causal_mask(attn_scores)
+        attn_scores = attn_scores.softmax(dim=(-1))
+        if self.cfg.debug:
+            print(f'{attn_scores.shape=}')
 
         # Step 2 
-        value = resid_broadcased @ self.W_V + self.b_V  # b p h d_h
-        # TODO
+        value = einops.einsum(
+            resid_broadcased,
+            self.W_V,
+            'b p h dm, h dm dh ->  b p h dh'
+        ) + self.b_V
+        if self.cfg.debug:
+            print(f'{value.shape=}')
+        z = einops.einsum(
+            attn_scores,
+            value,
+            'b h sq p, b p h dh -> b h sq dh'
+        )
+        if self.cfg.debug:
+            print(f'{z.shape=}')
+        x = einops.einsum(
+            z,
+            self.W_O,
+            'b h sq dh, h dh dm  -> b sq dm'
+        ) + self.b_O
+        if self.cfg.debug:
+            print(f'{x.shape=}')
+        return x
 
 
     def apply_causal_mask(
@@ -332,10 +376,146 @@ class Attention(nn.Module):
         '''
         Applies a causal mask to attention scores, and returns masked scores.
         '''
-        mask = t.triu(t.ones_like(attn_scores),diagonal=0).bool()
+        mask = t.triu(
+            t.ones(attn_scores.shape[-2:], device=attn_scores.device), 
+            diagonal=1
+        ).bool()
         return attn_scores.masked_fill_(mask, self.IGNORE)
 
 
 if MAIN:
     rand_float_test(Attention, [2, 4, 768])
     load_gpt2_test(Attention, reference_gpt2.blocks[0].attn, cache["normalized", 0, "ln1"])
+
+# %%
+class MLP(nn.Module):
+    def __init__(self, cfg: Config):
+        super().__init__()
+        self.cfg = cfg
+        self.W_in = nn.Parameter(t.empty((cfg.d_model, cfg.d_mlp)))
+        self.W_out = nn.Parameter(t.empty((cfg.d_mlp, cfg.d_model)))
+        self.b_in = nn.Parameter(t.zeros((cfg.d_mlp)))
+        self.b_out = nn.Parameter(t.zeros((cfg.d_model)))
+        nn.init.normal_(self.W_in, std=self.cfg.init_range)
+        nn.init.normal_(self.W_out, std=self.cfg.init_range)
+
+    def forward(
+        self, normalized_resid_mid: Float[Tensor, "batch posn d_model"]
+    ) -> Float[Tensor, "batch posn d_model"]:
+        x = einops.einsum(
+            normalized_resid_mid,
+            self.W_in,
+            'b p dm, dm dp -> b p dp'
+        ) + self.b_in
+        x = gelu_new(x)
+        x = einops.einsum(
+            x,
+            self.W_out,
+            'b p dp, dp dm -> b p dm'
+        ) + self.b_out
+        return x
+
+if MAIN:
+    rand_float_test(MLP, [2, 4, 768])
+    load_gpt2_test(MLP, reference_gpt2.blocks[0].mlp, cache["normalized", 0, "ln2"])
+
+# %%
+class TransformerBlock(nn.Module):
+    def __init__(self, cfg: Config):
+        super().__init__()
+        self.cfg = cfg
+        self.ln1 = LayerNorm(cfg)
+        self.attn = Attention(cfg)
+        self.ln2 = LayerNorm(cfg)
+        self.mlp = MLP(cfg)
+
+    def forward(
+        self, resid_pre: Float[Tensor, "batch position d_model"]
+    ) -> Float[Tensor, "batch position d_model"]:
+        x = resid_pre
+        x = self.attn(self.ln1(x)) + x
+        x = self.mlp(self.ln2(x)) + x
+        return x
+
+if MAIN:
+    rand_float_test(TransformerBlock, [2, 4, 768])
+    load_gpt2_test(TransformerBlock, reference_gpt2.blocks[0], cache["resid_pre", 0])
+
+# %%
+class Unembed(nn.Module):
+    def __init__(self, cfg):
+        super().__init__()
+        self.cfg = cfg
+        self.W_U = nn.Parameter(t.empty((cfg.d_model, cfg.d_vocab)))
+        nn.init.normal_(self.W_U, std=self.cfg.init_range)
+        self.b_U = nn.Parameter(t.zeros((cfg.d_vocab), requires_grad=False))
+
+    def forward(
+        self, normalized_resid_final: Float[Tensor, "batch position d_model"]
+    ) -> Float[Tensor, "batch position d_vocab"]:
+        return einops.einsum(
+            normalized_resid_final,
+            self.W_U,
+            'b p dm, dm dv -> b p dv'
+        ) + self.b_U
+
+
+if MAIN:
+    rand_float_test(Unembed, [2, 4, 768])
+    load_gpt2_test(Unembed, reference_gpt2.unembed, cache["ln_final.hook_normalized"])
+
+# %%
+class DemoTransformer(nn.Module):
+    def __init__(self, cfg: Config):
+        super().__init__()
+        self.cfg = cfg
+        self.embed = Embed(cfg)
+        self.pos_embed = PosEmbed(cfg)
+        self.blocks = nn.ModuleList([TransformerBlock(cfg) for _ in range(cfg.n_layers)])
+        self.ln_final = LayerNorm(cfg)
+        self.unembed = Unembed(cfg)
+
+    def forward(self, tokens: Int[Tensor, "batch position"]) -> Float[Tensor, "batch position d_vocab"]:
+        x = self.embed(tokens) + self.pos_embed(tokens)
+        for tb in self.blocks:
+            x = tb(x)
+        x = self.unembed(self.ln_final(x))
+        return x
+
+
+if MAIN:
+    rand_int_test(DemoTransformer, [2, 4])
+    load_gpt2_test(DemoTransformer, reference_gpt2, tokens)
+
+# %%
+def get_log_probs(
+    logits: Float[Tensor, "batch posn d_vocab"], 
+    tokens: Int[Tensor, "batch posn"]
+) -> Float[Tensor, "batch posn-1"]:
+
+    log_probs = logits.log_softmax(dim=-1)
+    # Get logprobs the first seq_len-1 predictions (so we can compare them with the actual next tokens)
+    log_probs_for_tokens = log_probs[:, :-1].gather(dim=-1, index=tokens[:, 1:].unsqueeze(-1)).squeeze(-1)
+
+    return log_probs_for_tokens
+
+
+if MAIN:
+    demo_gpt2 = DemoTransformer(Config(debug=False)).to(device)
+    demo_gpt2.load_state_dict(reference_gpt2.state_dict(), strict=False)
+    demo_logits = demo_gpt2(tokens)
+
+    pred_log_probs = get_log_probs(demo_logits, tokens)
+    print(f"Avg cross entropy loss: {-pred_log_probs.mean():.4f}")
+    print(f"Avg cross entropy loss for uniform distribution: {math.log(demo_gpt2.cfg.d_vocab):4f}")
+    print(f"Avg probability assigned to correct token: {pred_log_probs.exp().mean():4f}")
+# %%
+if MAIN:
+    test_string = '''The Total Perspective Vortex derives its picture of the whole Universe on the principle of'''
+    for i in tqdm(range(100)):
+        test_tokens = reference_gpt2.to_tokens(test_string).to(device)
+        demo_logits = demo_gpt2(test_tokens)
+        test_string += reference_gpt2.tokenizer.decode(demo_logits[-1, -1].argmax())
+
+    print(test_string)
+# %%
