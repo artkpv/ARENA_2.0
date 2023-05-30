@@ -40,7 +40,6 @@ streamlit-chat = "*"
 pytorch-lightning = "*"
 openai = "*"
 transformer-lens = "*"
-circuitsvis = {subdirectory = "python#egg=circuitsvis", git = "https://github.com/callummcdougall/CircuitsVis.git"}
 
 [dev-packages]
 
