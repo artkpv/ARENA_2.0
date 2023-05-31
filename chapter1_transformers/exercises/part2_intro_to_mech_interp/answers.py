@@ -117,4 +117,73 @@ if MAIN:
 
     t.testing.assert_close(layer0_pattern_from_cache, layer0_pattern_from_q_and_k)
     print("Tests passed!")
+
+# %%
+if MAIN:
+    print(type(gpt2_cache))
+    attention_pattern = gpt2_cache["pattern", 0, "attn"]
+    print(attention_pattern.shape)
+    gpt2_str_tokens = gpt2_small.to_str_tokens(gpt2_text)
+
+    print("Layer 0 Head Attention Patterns:")
+    display(cv.attention.attention_patterns(
+        tokens=gpt2_str_tokens, 
+        attention=attention_pattern,
+        #attention_head_names=[f"L0H{i}" for i in range(12)],   # Breaks for me.
+    ))
+
+# %%
+
+########
+# PART 2
+########
+# %%
+if MAIN:
+    cfg = HookedTransformerConfig(
+        d_model=768,
+        d_head=64,
+        n_heads=12,
+        n_layers=2,
+        n_ctx=2048,
+        d_vocab=50278,
+        attention_dir="causal",
+        attn_only=True, # defaults to False
+        tokenizer_name="EleutherAI/gpt-neox-20b", 
+        seed=398,
+        use_attn_result=True,
+        normalization_type=None, # defaults to "LN", i.e. layernorm with weights & biases
+        positional_embedding_type="shortformer"
+    )
+# %%
+if MAIN:
+    weights_dir = (section_dir / "attn_only_2L_half.pth").resolve()
+
+    if not weights_dir.exists():
+        url = "https://drive.google.com/uc?id=1vcZLJnJoYKQs-2KOjkd6LvHZrkSdoxhu"
+        output = str(weights_dir)
+        gdown.download(url, output)
+# %%
+if MAIN:
+    model = HookedTransformer(cfg)
+    pretrained_weights = t.load(weights_dir, map_location=device)
+    model.load_state_dict(pretrained_weights)
+# %%
+if MAIN:
+    text = "We think that powerful, significantly superhuman machine intelligence is more likely than not to be created this century. If current machine learning techniques were scaled up to this level, we think they would by default produce systems that are deceptive or manipulative, and that no solid plans are known for how to avoid this."
+
+    logits, cache = model.run_with_cache(text, remove_batch_dim=True)
+
+    tokens = model.to_str_tokens(text)
+    for l in range(model.cfg.n_layers):
+        attention_pattern = cache["pattern", l, "attn"]
+
+        print(f"Layer {l} Head Attention Patterns:")
+        display(cv.attention.attention_patterns(
+            tokens=tokens, 
+            attention=attention_pattern,
+        ))
+
+    # Notes:
+    # - Skip-trigram. 'we think they would by default' in Layer 0. 'by' attends 'we think they would'
+    # - Induction head at the second layer (Layer 1): 'machine' attends 'intelligence'.
 # %%
