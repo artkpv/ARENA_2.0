@@ -154,6 +154,7 @@ if MAIN:
         normalization_type=None, # defaults to "LN", i.e. layernorm with weights & biases
         positional_embedding_type="shortformer"
     )
+
 # %%
 if MAIN:
     weights_dir = (section_dir / "attn_only_2L_half.pth").resolve()
@@ -185,5 +186,29 @@ if MAIN:
 
     # Notes:
     # - Skip-trigram. 'we think they would by default' in Layer 0. 'by' attends 'we think they would'
-    # - Induction head at the second layer (Layer 1): 'machine' attends 'intelligence'.
+    # - Skip-trigram. L0 head 6: 'we' attends 'we' at the beginning of the sentence.
+    # - Induction head at the second layer? 'machine' attends 'intelligence' in layer 1 head 10. 
 # %%
+def current_attn_detector(cache: ActivationCache) -> List[str]:
+    '''
+    Returns a list e.g. ["0.2", "1.4", "1.9"] of "layer.head" which you judge to be current-token heads
+    '''
+    pass
+
+def prev_attn_detector(cache: ActivationCache) -> List[str]:
+    '''
+    Returns a list e.g. ["0.2", "1.4", "1.9"] of "layer.head" which you judge to be prev-token heads
+    '''
+    pass
+
+def first_attn_detector(cache: ActivationCache) -> List[str]:
+    '''
+    Returns a list e.g. ["0.2", "1.4", "1.9"] of "layer.head" which you judge to be first-token heads
+    '''
+    pass
+
+
+if MAIN:
+    print("Heads attending to current token  = ", ", ".join(current_attn_detector(cache)))
+    print("Heads attending to previous token = ", ", ".join(prev_attn_detector(cache)))
+    print("Heads attending to first token    = ", ", ".join(first_attn_detector(cache)))
