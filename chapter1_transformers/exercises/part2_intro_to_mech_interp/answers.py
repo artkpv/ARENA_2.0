@@ -176,7 +176,7 @@ if MAIN:
 
     tokens = model.to_str_tokens(text)
     for l in range(model.cfg.n_layers):
-        attention_pattern = cache["pattern", l, "attn"]
+        attention_pattern = cache[f"blocks.{l}.attn.hook_pattern"]
 
         print(f"Layer {l} Head Attention Patterns:")
         display(cv.attention.attention_patterns(
@@ -184,31 +184,70 @@ if MAIN:
             attention=attention_pattern,
         ))
 
-    # Notes:
-    # - Skip-trigram. 'we think they would by default' in Layer 0. 'by' attends 'we think they would'
-    # - Skip-trigram. L0 head 6: 'we' attends 'we' at the beginning of the sentence.
-    # - Induction head at the second layer? 'machine' attends 'intelligence' in layer 1 head 10. 
+    '''
+    Examples:
+    1. Layer 1, head 10. Skip-trigram attention. 'we' attends 'think' at the begining of the sentence, copying it to the output.
+    2. Induction head at the second layer? 'machine' attends 'intelligence' in layer 1 head 10. 
+    3. Bigram? 'manip' and 'pulative' Layer 0, head 9.
+    '''
 # %%
 def current_attn_detector(cache: ActivationCache) -> List[str]:
     '''
     Returns a list e.g. ["0.2", "1.4", "1.9"] of "layer.head" which you judge to be current-token heads
     '''
-    pass
+    global model
+    res = []
+    for l in range(model.cfg.n_layers):
+        heads = cache[f"blocks.{l}.attn.hook_pattern"]
+        h_num, d_head, _ = heads.shape
+        for hi in range(h_num):
+            k = f'{l}.{hi}'
+            diff_ = (heads[hi].argmax(dim=-1) - t.arange(0, d_head)).abs()
+            mean_ = diff_.float().mean()
+            if mean_ < 0.8:
+                res += [k]
+    return res
+
 
 def prev_attn_detector(cache: ActivationCache) -> List[str]:
     '''
     Returns a list e.g. ["0.2", "1.4", "1.9"] of "layer.head" which you judge to be prev-token heads
     '''
-    pass
+    res = []
+    for l in range(model.cfg.n_layers):
+        heads = cache[f"blocks.{l}.attn.hook_pattern"]
+        h_num, d_head, _ = heads.shape
+        for hi in range(h_num):
+            k = f'{l}.{hi}'
+            diff_ = (heads[hi].argmax(dim=-1) - t.arange(0, d_head)).abs()
+            mean_ = diff_.float().mean()
+            if 0.8 <= mean_ < 1.8:
+                res += [k]
+    return res
 
 def first_attn_detector(cache: ActivationCache) -> List[str]:
     '''
     Returns a list e.g. ["0.2", "1.4", "1.9"] of "layer.head" which you judge to be first-token heads
     '''
-    pass
-
+    global model
+    res = []
+    for l in range(model.cfg.n_layers):
+        heads = cache[f"blocks.{l}.attn.hook_pattern"]
+        for hi in range(heads.shape[0]):
+            max_ = heads[hi].argmax(dim=-1).float()
+            mean_ = max_.mean().item()
+            if mean_ < 1.0:
+                res += [f'{l}.{hi}']
+    return res
 
 if MAIN:
+    text = "We think that powerful, significantly superhuman machine intelligence is more likely than not to be created this century. If current machine learning techniques were scaled up to this level, we think they would by default produce systems that are deceptive or manipulative, and that no solid plans are known for how to avoid this."
+    #logits, cache = model.run_with_cache(text, remove_batch_dim=True)
+    pp(f"{logits.shape=}")
+    print("Heads attending to first token    = ", ", ".join(first_attn_detector(cache)))
     print("Heads attending to current token  = ", ", ".join(current_attn_detector(cache)))
     print("Heads attending to previous token = ", ", ".join(prev_attn_detector(cache)))
-    print("Heads attending to first token    = ", ", ".join(first_attn_detector(cache)))
+# %%
+
+if MAIN:
+    text = '''Mr. and Mrs. Dursley, of number four, Privet Drive, were proud to say that they were perfectly normal, thank you very much. They were the last people you’d expect to be involved in anything strange or mysterious, because they just didn’t hold with such nonsense. Mr. Dursley was the director of a firm called Grunnings, which made drills. He was a big, beefy man with hardly any neck, although he did have a very large mustache. Mrs. Dursley was thin and blonde and had nearly twice the usual amount of neck, which came in very useful as she spent so much of her time craning over garden fences, spying on the neighbors. The Dursleys had a small son called Dudley and in their opinion there was no finer boy anywhere. The Dursleys had everything they wanted, but they also had a secret, and their greatest fear was that somebody would discover it. They didn’t think they could bear it if anyone found out about the Potters. Mrs. Potter was Mrs. Dursley’s sister, but they hadn’t met for several years; in fact, Mrs. Dursley pretended she didn’t have a sister, because her sister and her good-for-nothing husband were as unDursleyish as it was possible to be. The Dursleys shuddered to think what the neighbors would say if the Potters arrived in the street. The Dursleys knew that the Potters had a small son, too, but they had never even seen him. This boy was another good reason for keeping the Potters away; they didn’t want Dudley mixing with a child like that.'''
