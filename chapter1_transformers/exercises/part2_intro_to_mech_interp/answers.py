@@ -187,7 +187,12 @@ if MAIN:
     '''
     Examples:
     1. Layer 1, head 10. Skip-trigram attention. 'we' attends 'think' at the begining of the sentence, copying it to the output.
-    2. Induction head at the second layer? 'machine' attends 'intelligence' in layer 1 head 10. 
+    2. Induction head at the second layer? 
+        - 'machine' attends 'intelligence' in layer 1 head 10. 
+        - 'this' at the end attends 'ectury' and 'level' which are preceeded by 'this'.
+           - Head 10.
+        - 'are' attends 'deceptive' and 'scaled' (preceeded by 'were' though) - Head 10.
+        - '.' at the end attends ' If' - Head 8.
     3. Bigram? 'manip' and 'pulative' Layer 0, head 9.
     '''
 # %%
@@ -240,6 +245,7 @@ def first_attn_detector(cache: ActivationCache) -> List[str]:
                 res += [f'{l}.{hi}']
     return res
 
+#%%
 if MAIN:
     text = "We think that powerful, significantly superhuman machine intelligence is more likely than not to be created this century. If current machine learning techniques were scaled up to this level, we think they would by default produce systems that are deceptive or manipulative, and that no solid plans are known for how to avoid this."
     #logits, cache = model.run_with_cache(text, remove_batch_dim=True)
@@ -250,4 +256,118 @@ if MAIN:
 # %%
 
 if MAIN:
+    pass  # Uses too much memory.
     text = '''Mr. and Mrs. Dursley, of number four, Privet Drive, were proud to say that they were perfectly normal, thank you very much. They were the last people you’d expect to be involved in anything strange or mysterious, because they just didn’t hold with such nonsense. Mr. Dursley was the director of a firm called Grunnings, which made drills. He was a big, beefy man with hardly any neck, although he did have a very large mustache. Mrs. Dursley was thin and blonde and had nearly twice the usual amount of neck, which came in very useful as she spent so much of her time craning over garden fences, spying on the neighbors. The Dursleys had a small son called Dudley and in their opinion there was no finer boy anywhere. The Dursleys had everything they wanted, but they also had a secret, and their greatest fear was that somebody would discover it. They didn’t think they could bear it if anyone found out about the Potters. Mrs. Potter was Mrs. Dursley’s sister, but they hadn’t met for several years; in fact, Mrs. Dursley pretended she didn’t have a sister, because her sister and her good-for-nothing husband were as unDursleyish as it was possible to be. The Dursleys shuddered to think what the neighbors would say if the Potters arrived in the street. The Dursleys knew that the Potters had a small son, too, but they had never even seen him. This boy was another good reason for keeping the Potters away; they didn’t want Dudley mixing with a child like that.'''
+
+    logits, cache = model.run_with_cache(text, remove_batch_dim=True)
+
+    tokens = model.to_str_tokens(text)
+    for l in range(model.cfg.n_layers):
+        attention_pattern = cache[f"blocks.{l}.attn.hook_pattern"]
+
+        print(f"Layer {l} Head Attention Patterns:")
+        display(cv.attention.attention_patterns(
+            tokens=tokens, 
+            attention=attention_pattern,
+        ))
+
+    print("Heads attending to first token    = ", ", ".join(first_attn_detector(cache)))
+    print("Heads attending to current token  = ", ", ".join(current_attn_detector(cache)))
+    print("Heads attending to previous token = ", ", ".join(prev_attn_detector(cache)))
+    # Output:
+    # Heads attending to first token    =  0.3
+    # Heads attending to current token  =  0.9
+    # Heads attending to previous token =  0.7, 0.11
+# %%
+
+def generate_repeated_tokens(
+    model: HookedTransformer, seq_len: int, batch: int = 1
+) -> Int[Tensor, "batch full_seq_len"]:
+    '''
+    Generates a sequence of repeated random tokens
+
+    Outputs are:
+        rep_tokens: [batch, 1+2*seq_len]
+    '''
+    prefix = (t.ones(batch, 1) * model.tokenizer.bos_token_id).long()
+    res = t.randint(0, model.cfg.d_vocab, (batch, 1+2*seq_len))
+    res[:,0:1] = prefix[:,0]
+    res[:,1+seq_len:] = res[:,1:1+seq_len]
+    return res
+
+def run_and_cache_model_repeated_tokens(model: HookedTransformer, seq_len: int, batch: int = 1) -> Tuple[t.Tensor, t.Tensor, ActivationCache]:
+    '''
+    Generates a sequence of repeated random tokens, and runs the model on it, returning logits, tokens and cache
+
+    Should use the `generate_repeated_tokens` function above
+
+    Outputs are:
+        rep_tokens: [batch, 1+2*seq_len]
+        rep_logits: [batch, 1+2*seq_len, d_vocab]
+        rep_cache: The cache of the model run on rep_tokens
+    '''
+    rep_tokens = generate_repeated_tokens(model, seq_len, batch)
+    rep_logits, rep_cache = model.run_with_cache(rep_tokens)
+    return (rep_tokens, rep_logits, rep_cache)
+
+
+if MAIN:
+    seq_len = 50
+    batch = 1
+    (rep_tokens, rep_logits, rep_cache) = run_and_cache_model_repeated_tokens(model, seq_len, batch)
+    rep_cache.remove_batch_dim()
+    rep_str = model.to_str_tokens(rep_tokens)
+    model.reset_hooks()
+    log_probs = get_log_probs(rep_logits, rep_tokens).squeeze()
+
+    print(f"Performance on the first half: {log_probs[:seq_len].mean():.3f}")
+    print(f"Performance on the second half: {log_probs[seq_len:].mean():.3f}")
+
+    plot_loss_difference(log_probs, rep_str, seq_len)
+
+#%%
+if MAIN:
+    for l in range(model.cfg.n_layers):
+        attention_pattern = rep_cache[f"blocks.{l}.attn.hook_pattern"]
+
+        print(f"Layer {l} Head Attention Patterns:")
+        display(cv.attention.attention_patterns(
+            tokens=rep_str, 
+            attention=attention_pattern,
+        ))
+
+# %%
+def induction_attn_detector(cache: ActivationCache) -> List[str]:
+    '''
+    Returns a list e.g. ["0.2", "1.4", "1.9"] of "layer.head" which you judge to be induction heads
+
+    Remember - the tokens used to generate rep_cache are (bos_token, *rand_tokens, *rand_tokens)
+    '''
+    global model
+    res = []
+    heads = cache["blocks.1.attn.hook_pattern"]
+    h_num, d_head, _ = heads.shape
+    for hi in range(h_num):
+        k = f'1.{hi}'
+        max_ = heads[hi].argmax(dim=-1)
+        pp(k)
+        pp(max_)
+        non_zero = max_ != 0
+        for start in range(2, d_head-d_head//7):
+            diagonal = t.cat([
+                t.zeros(start),
+                t.arange(0, d_head-start)
+            ]).int().to(device)
+            assert max_.shape == diagonal.shape
+            diff_ = (max_[non_zero] - diagonal[non_zero]).abs()
+            mean_ = diff_.float().mean()
+            if mean_ < 0.2:
+                pp(diagonal)
+                res += [k]
+                break
+    return res
+
+
+if MAIN:
+    print("Induction heads = ", ", ".join(induction_attn_detector(rep_cache)))
+# %%
