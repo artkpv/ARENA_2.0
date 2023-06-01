@@ -291,7 +291,7 @@ def generate_repeated_tokens(
     '''
     prefix = (t.ones(batch, 1) * model.tokenizer.bos_token_id).long()
     res = t.randint(0, model.cfg.d_vocab, (batch, 1+2*seq_len))
-    res[:,0:1] = prefix[:,0]
+    res[:,0] = prefix[:,0]
     res[:,1+seq_len:] = res[:,1:1+seq_len]
     return res
 
@@ -337,6 +337,32 @@ if MAIN:
         ))
 
 # %%
+
+def head_induction_attn_detector(head: t.Tensor) -> bool:
+    '''
+    Calculates the induction score for a single head.
+
+    Inputs:
+        head: [d_head, d_head] attention pattern for a single head
+
+    Outputs:
+        True or False, whether the head is an induction head, or not.
+    '''
+    d_head, _ = head.shape
+    max_ = head.argmax(dim=-1)
+    non_zero = max_ != 0
+    for start in range(2, d_head-d_head//7):
+        diagonal = t.cat([
+            t.zeros(start),
+            t.arange(0, d_head-start)
+        ]).int().to(device)
+        assert max_.shape == diagonal.shape
+        diff_ = (max_[non_zero] - diagonal[non_zero]).abs()
+        mean_ = diff_.float().mean()
+        if mean_ < 0.4:
+            return True
+    return False
+
 def induction_attn_detector(cache: ActivationCache) -> List[str]:
     '''
     Returns a list e.g. ["0.2", "1.4", "1.9"] of "layer.head" which you judge to be induction heads
@@ -349,25 +375,128 @@ def induction_attn_detector(cache: ActivationCache) -> List[str]:
     h_num, d_head, _ = heads.shape
     for hi in range(h_num):
         k = f'1.{hi}'
-        max_ = heads[hi].argmax(dim=-1)
-        pp(k)
-        pp(max_)
-        non_zero = max_ != 0
-        for start in range(2, d_head-d_head//7):
-            diagonal = t.cat([
-                t.zeros(start),
-                t.arange(0, d_head-start)
-            ]).int().to(device)
-            assert max_.shape == diagonal.shape
-            diff_ = (max_[non_zero] - diagonal[non_zero]).abs()
-            mean_ = diff_.float().mean()
-            if mean_ < 0.2:
-                pp(diagonal)
-                res += [k]
-                break
+        if head_induction_attn_detector(heads[hi]):
+            res += [k]
     return res
 
 
 if MAIN:
     print("Induction heads = ", ", ".join(induction_attn_detector(rep_cache)))
+# %%
+
+###############
+# PART 3. HOOKS
+###############
+
+# %%
+if MAIN:
+    seq_len = 50
+    batch = 10
+    rep_tokens_10 = generate_repeated_tokens(model, seq_len, batch)
+
+    # We make a tensor to store the induction score for each head.
+    # We put it on the model's device to avoid needing to move things between the GPU and CPU, which can be slow.
+    induction_score_store = t.zeros((model.cfg.n_layers, model.cfg.n_heads), device=model.cfg.device)
+
+def induction_score_hook(
+    pattern: Float[Tensor, "batch head_index dest_pos source_pos"],
+    hook: HookPoint,
+):
+    '''
+    Calculates the induction score, and stores it in the [layer, head] position of the `induction_score_store` tensor.
+    '''
+    global induction_score_store
+    induction_stripe = pattern.diagonal(dim1=-2, dim2=-1, offset=1-seq_len)
+    induction_score = einops.reduce(induction_stripe, "batch head_index position -> head_index", "mean")
+    induction_score_store[hook.layer(), :] = induction_score
+
+    # Slow:
+    # batches, heads, ps, _ = pattern.shape
+    # layer = hook.layer()
+    # if layer == 0:
+    #     return
+    # for h in range(heads):
+    #     score = 0.0
+    #     for b in range(batches):
+    #         head_pattern = pattern[b,h]
+    #         if head_induction_attn_detector(head_pattern):
+    #             score += 1.0
+    #     score = score / (batches)
+    #     induction_score_store[layer, h] = score
+
+# %%
+
+if MAIN:
+    pattern_hook_names_filter = lambda name: name.endswith("pattern")
+
+    # Run with hooks (this is where we write to the `induction_score_store` tensor`)
+    model.run_with_hooks(
+        rep_tokens_10, 
+        return_type=None, # For efficiency, we don't need to calculate the logits
+        fwd_hooks=[(
+            pattern_hook_names_filter,
+            induction_score_hook
+        )]
+    )
+
+    # Plot the induction scores for each head in each layer
+    imshow(
+        induction_score_store, 
+        labels={"x": "Head", "y": "Layer"}, 
+        title="Induction Score by Head", 
+        text_auto=".2f",
+        width=900, height=400
+    )
+
+# %%
+def visualize_pattern_hook(
+    pattern: Float[Tensor, "batch head_index dest_pos source_pos"],
+    hook: HookPoint,
+):
+    print("Layer: ", hook.layer())
+    display(
+        cv.attention.attention_patterns(
+            tokens=gpt2_small.to_str_tokens(rep_tokens[0]), 
+            attention=pattern.mean(0)
+        )
+    )
+
+
+if MAIN:
+    seq_len = 50
+    batch = 10
+    rep_tokens_10 = generate_repeated_tokens(model, seq_len, batch)
+
+    # We make a tensor to store the induction score for each head.
+    # We put it on the model's device to avoid needing to move things between the GPU and CPU, which can be slow.
+    induction_score_store = t.zeros((gpt2_small.cfg.n_layers, gpt2_small.cfg.n_heads), device=model.cfg.device)
+
+    pattern_hook_names_filter = lambda name: name.endswith("pattern")
+    # Run with hooks (this is where we write to the `induction_score_store` tensor`)
+    gpt2_small.run_with_hooks(
+        rep_tokens_10, 
+        return_type=None, # For efficiency, we don't need to calculate the logits
+        fwd_hooks=[(
+            pattern_hook_names_filter,
+            induction_score_hook
+        )]
+    )
+
+    # Plot the induction scores for each head in each layer
+    imshow(
+        induction_score_store, 
+        labels={"x": "Head", "y": "Layer"}, 
+        title="Induction Score by Head", 
+        text_auto=".2f",
+        width=900, height=400
+    )
+
+    for induction_head_layer in [5, 6, 7]:
+        gpt2_small.run_with_hooks(
+            rep_tokens, 
+            return_type=None, # For efficiency, we don't need to calculate the logits
+            fwd_hooks=[
+                (utils.get_act_name("pattern", induction_head_layer), visualize_pattern_hook)
+            ]
+        )
 # %%
