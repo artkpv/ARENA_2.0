@@ -258,7 +258,7 @@ def decompose_q(decomposed_qk_input: t.Tensor, ind_head_index: int) -> t.Tensor:
     The [i, :, :]th element is y_i @ W_Q (so the sum along axis 0 is just the q-values)
     '''
     return einops.einsum(
-        decompose_qk_input,
+        decomposed_qk_input,
         model.W_Q[1, ind_head_index],
         'i p dh, dh dm -> i p dm'
     )
@@ -270,7 +270,7 @@ def decompose_k(decomposed_qk_input: t.Tensor, ind_head_index: int) -> t.Tensor:
     The [i, :, :]th element is y_i @ W_K (so the sum along axis 0 is just the k-values)
     '''
     return einops.einsum(
-        decompose_qk_input,
+        decomposed_qk_input,
         model.W_K[1 ,ind_head_index],
         'i p dh, dh dm -> i p dm'
     )
@@ -294,4 +294,108 @@ if MAIN:
             y=component_labels,
             width=1000, height=400
         )
+# %%
+def decompose_attn_scores(decomposed_q: t.Tensor, decomposed_k: t.Tensor) -> t.Tensor:
+    '''
+    Output is decomposed_scores with shape [query_component, key_component, query_pos, key_pos]
+
+    The [i, j, :, :]th element is y_i @ W_QK @ y_j^T (so the sum along both first axes are the attention scores)
+    '''
+    return einops.einsum(
+        decomposed_q,
+        decomposed_k,
+        'i qp dm, j kp dm -> i j qp kp'
+    )
+
+if MAIN:
+    tests.test_decompose_attn_scores(decompose_attn_scores, decomposed_q, decomposed_k)
+
+# %%
+if MAIN:
+    decomposed_scores = decompose_attn_scores(decomposed_q, decomposed_k)
+    decomposed_stds = einops.reduce(
+        decomposed_scores, 
+        "query_decomp key_decomp query_pos key_pos -> query_decomp key_decomp", 
+        t.std
+    )
+
+    # First plot: attention score contribution from (query_component, key_component) = (Embed, L0H7)
+    imshow(
+        utils.to_numpy(t.tril(decomposed_scores[0, 9])), 
+        title="Attention score contributions from (query, key) = (embed, output of L0H7)",
+        width=800
+    )
+
+    # Second plot: std dev over query and key positions, shown by component
+    imshow(
+        utils.to_numpy(decomposed_stds), 
+        labels={"x": "Key Component", "y": "Query Component"},
+        title="Standard deviations of attention score contributions (by key and query component)", 
+        x=component_labels, 
+        y=component_labels,
+        width=800
+    )
+
+# %%
+def find_K_comp_full_circuit(
+    model: HookedTransformer,
+    prev_token_head_index: int,
+    ind_head_index: int
+) -> FactoredMatrix:
+    '''
+    Returns a (vocab, vocab)-size FactoredMatrix, with the first dimension being the query side and the second dimension being the key side (going via the previous token head)
+    '''
+    query = FactoredMatrix(
+        model.W_E,
+        model.W_Q[1, ind_head_index]
+    )
+    key = (
+        model.W_E 
+        @ FactoredMatrix(
+            model.W_V[0,prev_token_head_index],
+            model.W_O[0,prev_token_head_index]
+        ) @ model.W_K[1, ind_head_index]
+    )
+    return query @ key.T
+
+
+if MAIN:
+    prev_token_head_index = 7
+    ind_head_index = 4
+    K_comp_circuit = find_K_comp_full_circuit(model, prev_token_head_index, ind_head_index)
+
+    tests.test_find_K_comp_full_circuit(find_K_comp_full_circuit, model)
+
+    print(f"Fraction of tokens where the highest activating key is the same token: {top_1_acc(K_comp_circuit.T):.4f}")
+    # > 0.5201
+
+#%%
+if MAIN:
+    prev_token_head_index = 7
+    ind_head_index = 10
+    K_comp_circuit = find_K_comp_full_circuit(model, prev_token_head_index, ind_head_index)
+
+    tests.test_find_K_comp_full_circuit(find_K_comp_full_circuit, model)
+
+    print(f"Fraction of tokens where the highest activating key is the same token: {top_1_acc(K_comp_circuit.T):.4f}")
+    # > 0.5520
+
+#%%
+
+###########################################
+# Further Exploration of Induction Circuits
+###########################################
+# %%
+def get_comp_score(
+    W_A: Float[Tensor, "in_A out_A"], 
+    W_B: Float[Tensor, "out_A out_B"]
+) -> float:
+    '''
+    Return the composition score between W_A and W_B.
+    '''
+    return t.linalg.norm(W_A @ W_B) / (t.linalg.norm(W_A) * t.linalg.norm(W_B))
+
+
+if MAIN:
+    tests.test_get_comp_score(get_comp_score)
 # %%
