@@ -2192,7 +2192,7 @@ $$
 <details>
 <summary>Answer</summary>
 
-$W_E W_{OV}^{h_1} W_{QK}^{h_2} W_E^T$ has size $(n_\text{ctx}, n_\text{ctx})$, it is a bilinear form describing where information is moved to and from in head $h_2$, given that the **query-side vector** is formed from the output of head $h_1$. In other words, this is an instance of **Q-composition**.
+$W_E W_{OV}^{h_1} W_{QK}^{h_2} W_E^T$ has size $(d_\text{vocab}, d_\text{vocab})$, it is a bilinear form describing where information is moved to and from in head $h_2$, given that the **query-side vector** is formed from the output of head $h_1$. In other words, this is an instance of **Q-composition**.
 
 If $A$ and $B$ are one-hot encodings for tokens `A` and `B`, then $A^T W_E W_{OV}^{h_1} W_{QK}^{h_2} W_E^T B$ is the attention score paid **to** token `B`, **by** any token which attended strongly to an `A`-token in head $h_1$.
 
@@ -2245,16 +2245,16 @@ Suppose we have $M=AB$, where $A$ has shape $(m, n)$, $B$ has shape $(n, m)$, an
 <details>
 <summary>Answer</summary>
 
-The solution lies in the fact that trace is cyclic:
+We have:
 
 $$
 \text{Tr}(M) = \text{Tr}(AB)
-= \sum_{i,j=1}^n A_{ij} B_{ji}
-= \sum_{i,j=1}^n B_{ji} A_{ij}
-= \text{Tr}(BA)
+= \sum_{i=1}^m \sum_{j=1}^n A_{ij} B_{ji}
 $$
 
-$AB$ is an $(m, m)$-matrix, but $BA$ is $(n, n)$ (much smaller). So we can just find the trace of $BA$ instead.
+so evaluation of the trace is $O(mn)$.
+
+Note that, by cyclicity of the trace, we can also show that $\text{Tr}(M) = \text{Tr}(BA)$ (although we don't even need to calculate the product $AB$ to evaluate the trace).
 </details>
 
 **Question - how can you easily compute the eigenvalues of $M$?**
@@ -2439,7 +2439,7 @@ After this, we'll have a look at composition scores, which are a more mathematic
 
 ## [1] OV copying circuit
 
-Let's start with an easy parts of the circuit - the copying OV circuit of `1.4` and `1.10`. Let's start with head 4. The only interpretable (read: **privileged basis**) things here are the input tokens and output logits, so we want to study the matrix:
+Let's start with an easy part of the circuit - the copying OV circuit of `1.4` and `1.10`. Let's start with head 4. The only interpretable (read: **privileged basis**) things here are the input tokens and output logits, so we want to study the matrix:
 
 $$
 W_E W_{OV}^{1.4} W_U
@@ -2688,7 +2688,7 @@ This exercise should be very short; it only requires 2 lines of code. Understand
 ```
 
 
-Now we return to why we have *two* induction heads. If both have the same attention pattern, the effective OV circuit is actually $W_U(W_O^{1.4}W_V^{1.4}+W_O^{1.10}W_V^{1.10})W_E$, and this is what matters. So let's re-run our analysis on this!
+Now we return to why we have *two* induction heads. If both have the same attention pattern, the effective OV circuit is actually $W_E(W_V^{1.4}W_O^{1.4}+W_V^{1.10}W_O^{1.10})W_U$, and this is what matters. So let's re-run our analysis on this!
 
 <img src="https://raw.githubusercontent.com/callummcdougall/computational-thread-art/master/example_images/misc/effective_ov_circuit.png" width="650">
 
