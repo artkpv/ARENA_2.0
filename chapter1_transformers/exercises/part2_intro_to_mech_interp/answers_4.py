@@ -132,7 +132,8 @@ if MAIN:
 # %%
 def top_1_acc(full_OV_circuit: FactoredMatrix, batch_size: int = 100) -> float: 
     '''
-    This should take the argmax of each column (ie over dim=0) and return the fraction of the time that's equal to the correct logit
+    This should take the argmax of each column (ie over dim=0) and return the
+    fraction of the time that's equal to the correct logit
     '''
     A, B = full_OV_circuit.A, full_OV_circuit.B
     nrows = full_OV_circuit.shape[0]
@@ -149,7 +150,7 @@ def top_1_acc(full_OV_circuit: FactoredMatrix, batch_size: int = 100) -> float:
 
 if MAIN:
     print(f"Fraction of the time that the best logit is on the diagonal: {top_1_acc(full_OV_circuit):.4f}")
-
+    
 # %%
 if MAIN:
     pp(model.W_E.shape)
