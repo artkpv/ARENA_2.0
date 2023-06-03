@@ -12,13 +12,13 @@ st.set_page_config(layout="wide", page_icon="🔬")
 is_local = (platform.processor() != "")
 
 # Get to the right directory: the streamlit one (not pages)
-# Get to chapter0_fundamentals directory (or whatever the chapter dir is)
+# Get to chapter1_transformers directory (or whatever the chapter dir is)
 
 # Navigate to the root directory, i.e. ARENA_2 for me, or the working directory for people locally
 while "chapter" in os.getcwd():
     os.chdir("..")
 # Now with this reference point, we can add things to sys.path
-root_path = (Path.cwd() / "chapter0_fundamentals" / "instructions").resolve()
+root_path = (Path.cwd() / "chapter1_transformers" / "instructions").resolve()
 sys.path.append(str(root_path))
 sys.path.append(str(root_path.parent))
 
