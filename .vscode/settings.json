@@ -12,7 +12,7 @@
         "${workspaceFolder}/chapter1_transformers/exercises/part6_othellogpt/othello_world/mechanistic_interpretability",
     ],
     "[python]": {
-        "editor.defaultFormatter": "ms-python.black-formatter"
+        "editor.defaultFormatter": "ms-python.python"
     },
     "python.formatting.provider": "none"
 }
