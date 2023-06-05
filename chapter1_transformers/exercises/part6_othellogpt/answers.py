@@ -234,7 +234,7 @@ linear_probe[..., blank_index] = 0.5 * (full_linear_probe[black_to_play_index, .
 linear_probe[..., their_index] = 0.5 * (full_linear_probe[black_to_play_index, ..., 1] + full_linear_probe[white_to_play_index, ..., 2])
 linear_probe[..., my_index] = 0.5 * (full_linear_probe[black_to_play_index, ..., 2] + full_linear_probe[white_to_play_index, ..., 1])
 # %%
-layer = 4
+layer = 6
 game_index = 0
 move = 29
 
@@ -249,4 +249,18 @@ def plot_probe_outputs(layer, game_index, move, **kwargs):
 plot_probe_outputs(layer, game_index, move, title="Example probe outputs after move 29 (black to play)")
 
 plot_single_board(int_to_label(focus_games_int[game_index, :move+1]))
+# %%
+layer = 4
+game_index = 0
+move = 29
+
+plot_probe_outputs(layer, game_index, move, title="Example probe outputs at layer 4 after move 29 (black to play)")
+#%%
+layer = 4
+game_index = 0
+move = 30
+
+plot_probe_outputs(layer, game_index, move, title="Example probe outputs at layer 4 after move 30 (white to play)")
+
+plot_single_board(focus_games_string[game_index, :31])
 # %%
