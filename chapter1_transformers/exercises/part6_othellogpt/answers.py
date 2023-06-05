@@ -222,3 +222,31 @@ options = 3
 assert full_linear_probe.shape == (3, cfg.d_model, rows, cols, options)
 
 # %%
+black_to_play_index = 0
+white_to_play_index = 1
+blank_index = 0
+their_index = 1
+my_index = 2
+
+# Creating values for linear probe (converting the "black/white to play" notation into "me/them to play")
+linear_probe = t.zeros(cfg.d_model, rows, cols, options, device=device)
+linear_probe[..., blank_index] = 0.5 * (full_linear_probe[black_to_play_index, ..., 0] + full_linear_probe[white_to_play_index, ..., 0])
+linear_probe[..., their_index] = 0.5 * (full_linear_probe[black_to_play_index, ..., 1] + full_linear_probe[white_to_play_index, ..., 2])
+linear_probe[..., my_index] = 0.5 * (full_linear_probe[black_to_play_index, ..., 2] + full_linear_probe[white_to_play_index, ..., 1])
+# %%
+layer = 4
+game_index = 0
+move = 29
+
+def plot_probe_outputs(layer, game_index, move, **kwargs):
+    residual_stream = focus_cache["resid_post", layer][game_index, move]
+    # print("residual_stream", residual_stream.shape)
+    probe_out = einops.einsum(residual_stream, linear_probe, "d_model, d_model row col options -> row col options")
+    probabilities = probe_out.softmax(dim=-1)
+    plot_square_as_board(probabilities, facet_col=2, facet_labels=["P(Empty)", "P(Their's)", "P(Mine)"], **kwargs)
+
+
+plot_probe_outputs(layer, game_index, move, title="Example probe outputs after move 29 (black to play)")
+
+plot_single_board(int_to_label(focus_games_int[game_index, :move+1]))
+# %%
