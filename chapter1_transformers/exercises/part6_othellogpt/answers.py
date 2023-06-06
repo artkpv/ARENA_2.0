@@ -214,7 +214,7 @@ focus_logits, focus_cache = model.run_with_cache(focus_games_int[:, :-1].to(devi
 print(focus_logits.shape)
 print(focus_cache['pattern', 7].shape)
 # %%
-full_linear_probe = t.load(OTHELLO_MECHINT_ROOT / "main_linear_probe.pth")
+full_linear_probe = t.load(OTHELLO_MECHINT_ROOT / "main_linear_probe.pth", map_location=device)
 
 rows = 8
 cols = 8 
