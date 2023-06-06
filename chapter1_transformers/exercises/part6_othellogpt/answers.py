@@ -304,3 +304,35 @@ probe_out = einops.einsum(
 
 probe_out_value = probe_out.argmax(dim=-1)
 # %%
+correct_middle_odd_answers = (probe_out_value.cpu() == focus_states_flipped_value[:, :-1])[:, 5:-5:2]
+accuracies_odd = einops.reduce(correct_middle_odd_answers.float(), "game move row col -> row col", "mean")
+
+correct_middle_answers = (probe_out_value.cpu() == focus_states_flipped_value[:, :-1])[:, 5:-5]
+accuracies = einops.reduce(correct_middle_answers.float(), "game move row col -> row col", "mean")
+
+plot_square_as_board(
+    1 - t.stack([accuracies_odd, accuracies], dim=0),
+    title="Average Error Rate of Linear Probe", 
+    facet_col=0, facet_labels=["Black to Play moves", "All Moves"], 
+    zmax=0.25, zmin=-0.25
+)
+
+# %%
+# YOUR CODE HERE - define the `cosine_similarities` tensor, to be plotted
+
+cosine_similarities = einops.einsum(
+    probe_out_value.cpu()[:, 5:-5],
+    focus_states_flipped_value[:, :-1][:, 5:-5],
+    'game move row col, game move row col -> '
+)
+cosine_similarities /= probe_out_value.cpu()[:, 5:-5].float().norm()
+cosine_similarities /= focus_states_flipped_value[:, :-1][:, 5:-5].float().norm()
+
+
+imshow(
+    cosine_similarities,
+    title="Cosine Sim of B-W Linear Probe Directions by Cell",
+    x=[f"{L} (O)" for L in full_board_labels] + [f"{L} (E)" for L in full_board_labels],
+    y=[f"{L} (O)" for L in full_board_labels] + [f"{L} (E)" for L in full_board_labels],
+)
+# %%
