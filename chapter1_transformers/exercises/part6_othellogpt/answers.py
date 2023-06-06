@@ -264,3 +264,43 @@ plot_probe_outputs(layer, game_index, move, title="Example probe outputs at laye
 
 plot_single_board(focus_games_string[game_index, :31])
 # %%
+def state_stack_to_one_hot(state_stack):
+    '''
+    Creates a tensor of shape (games, moves, rows=8, cols=8, options=3), where the [g, m, r, c, :]-th entry
+    is a one-hot encoded vector for the state of game g at move m, at row r and column c. In other words, this
+    vector equals (1, 0, 0) when the state is empty, (0, 1, 0) when the state is "their", and (0, 0, 1) when the
+    state is "my".
+    '''
+    one_hot = t.zeros(
+        state_stack.shape[0], # num games
+        state_stack.shape[1], # num moves
+        rows,
+        cols,
+        3, # the options: empty, white, or black
+        device=state_stack.device,
+        dtype=t.int,
+    )
+    one_hot[..., 0] = state_stack == 0 
+    one_hot[..., 1] = state_stack == -1 
+    one_hot[..., 2] = state_stack == 1 
+
+    return one_hot
+
+# We first convert the board states to be in terms of my (+1) and their (-1), rather than black and white
+
+alternating = np.array([-1 if i%2 == 0 else 1 for i in range(focus_games_int.shape[1])])
+flipped_focus_states = focus_states * alternating[None, :, None, None]
+
+# We now convert to one-hot encoded vectors
+focus_states_flipped_one_hot = state_stack_to_one_hot(t.tensor(flipped_focus_states))
+
+# Take the argmax (i.e. the index of option empty/their/mine)
+focus_states_flipped_value = focus_states_flipped_one_hot.argmax(dim=-1)
+# %%
+probe_out = einops.einsum(
+    focus_cache["resid_post", 6], linear_probe,
+    "game move d_model, d_model row col options -> game move row col options"
+)
+
+probe_out_value = probe_out.argmax(dim=-1)
+# %%
