@@ -152,6 +152,7 @@ moves_int = board_seqs_int[0, :30]
 # This is implicitly converted to a batch of size 1
 logits: Tensor = model(moves_int)
 print("logits:", logits.shape)
+print(logits)
 # %%
 logit_vec = logits[0, -1]
 log_probs = logit_vec.log_softmax(-1)
@@ -757,4 +758,128 @@ move = 20
 
 plot_single_board(focus_games_string[game_index, :move+1], title="Original Game (black plays E0)")
 plot_single_board(focus_games_string[game_index, :move].tolist()+[16], title="Corrupted Game (blank plays C0)")
+# %%
+clean_input = focus_games_int[game_index, :move+1].clone()
+corrupted_input = focus_games_int[game_index, :move+1].clone()
+corrupted_input[-1] = to_int("C0")
+print("Clean:     ", ", ".join(int_to_label(corrupted_input)))
+print("Corrupted: ", ", ".join(int_to_label(clean_input)))
+# %%
+clean_logits, clean_cache = model.run_with_cache(clean_input)
+corrupted_logits, corrupted_cache = model.run_with_cache(corrupted_input)
+
+clean_log_probs = clean_logits.log_softmax(dim=-1)
+corrupted_log_probs = corrupted_logits.log_softmax(dim=-1)
+# %%
+f0_index = to_int("F0")
+clean_f0_log_prob = clean_log_probs[0, -1, f0_index]
+corrupted_f0_log_prob = corrupted_log_probs[0, -1, f0_index]
+
+print("Clean log prob", clean_f0_log_prob.item())
+print("Corrupted log prob", corrupted_f0_log_prob.item(), "\n")
+
+def patching_metric(patched_logits: Float[Tensor, "batch=1 seq=21 d_vocab=61"]):
+    '''
+    Function of patched logits, calibrated so that it equals 0 when performance is 
+    same as on corrupted input, and 1 when performance is same as on clean input.
+
+    Should be linear function of the logits for the F0 token at the final move.
+    '''
+    log_prob = patched_logits.log_softmax(dim=-1)[0, -1, f0_index] 
+    return (log_prob - corrupted_f0_log_prob) / (clean_f0_log_prob - corrupted_f0_log_prob)
+
+
+tests.test_patching_metric(patching_metric, clean_log_probs, corrupted_log_probs)
+# %%
+def patch_final_move_output(
+    activation: Float[Tensor, "batch seq d_model"], 
+    hook: HookPoint,
+    clean_cache: ActivationCache,
+) -> Float[Tensor, "batch seq d_model"]:
+    '''
+    Hook function which patches activations at the final sequence position.
+
+    Note, we only need to patch in the final sequence position, because the
+    prior moves in the clean and corrupted input are identical (and this is
+    an autoregressive model).
+    '''
+    return clean_cache[hook.name]
+    #activation[0,-1,:] =  clean_cache[hook.name][0, -1, :]
+    #return activation
+
+def get_act_patch_resid_pre(
+    model: HookedTransformer, 
+    corrupted_input: Float[Tensor, "batch pos"], 
+    clean_cache: ActivationCache, 
+    patching_metric: Callable[[Float[Tensor, "batch seq d_model"]], Float[Tensor, ""]]
+) -> Float[Tensor, "2 n_layers"]:
+    '''
+    Returns an array of results, corresponding to the results of patching at
+    each (attn_out, mlp_out) for all layers in the model.
+    '''
+    res = t.empty((2, model.cfg.n_layers), device=device)
+    for act_i, act_name in ((0, 'attn_out'), (1, 'mlp_out')):
+        for layer in range(model.cfg.n_layers):
+            model.reset_hooks()
+            out = model.run_with_hooks(corrupted_input, fwd_hooks=[
+                (utils.get_act_name(act_name, layer), lambda resid, hook: patch_final_move_output(resid, hook, clean_cache)),
+            ])
+            res[act_i, layer] = patching_metric(out)
+    return res
+
+patching_results = get_act_patch_resid_pre(model, corrupted_input, clean_cache, patching_metric)
+
+line(patching_results, title="Layer Output Patching Effect on F0 Log Prob", line_labels=["attn", "mlp"], width=750)
+# %%
+# Part 3️⃣ Neuron Interpretability: A Deep Dive
+# %%
+layer = 5
+neuron = 1393
+
+w_out = get_w_out(model, layer, neuron, normalize=False)
+state = t.zeros(8, 8, device=device)
+state.flatten()[stoi_indices] = w_out @ model.W_U[:, 1:]
+plot_square_as_board(state, title=f"Output weights of Neuron L{layer}N{neuron} in the output logit basis", width=600)
+# %%
+c0 = model.W_U[:, to_int("C0")].detach()
+d1 = model.W_U[:, to_int("D1")].detach()
+print('Similarity of C0 and D1:', (c0 @ d1).item())
+# %%
+w_out /= w_out.norm()
+U, S, Vh = t.svd(model.W_U[:,1:])
+W_U_space_basis = U[:, :-4]
+
+print("Fraction of neuron weights in W_U basis:", (w_out @ probe_space_basis).norm().item()**2)
+# %%
+neuron_acts = focus_cache["post", layer, "mlp"][:, :, neuron]
+
+imshow(
+    neuron_acts,
+    title=f"L{layer}N{neuron} Activations over 50 games",
+    labels={"x": "Move", "y": "Game"},
+    aspect="auto",
+    width=900
+)
+# %%
+# game = 18
+# for move in range(60):
+#     if neuron_acts[game, move].item() > 0:
+#         temp_board_state = t.zeros((8, 8), dtype=t.float32, device=device) - 13.
+#         temp_board_state.flatten()[stoi_indices] = focus_logits[game, move].log_softmax(dim=-1)[1:]
+#         plot_square_as_board(temp_board_state.reshape(8, 8), zmax=0, diverging_scale=False, title=f"Game {game}, move {move}")
+# Result of the above is that it prints boards for even moves from 14 to 42 where C0 is activated. 
+# %%
+moves=slice(30,46)
+imshow(
+    focus_states[game, moves],
+    facet_col=0,
+    facet_col_wrap=5,
+    y=list("ABCDEFGH"),
+    facet_labels=[f"Move {i}" for i in list(range(60))[moves]],
+    title=f"First moves of {game} game",
+    color_continuous_scale="Greys",
+    coloraxis_showscale=False,
+    width=1000,
+    height=1000,
+)
 # %%
