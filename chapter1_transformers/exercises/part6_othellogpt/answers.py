@@ -371,13 +371,19 @@ newly_illegal = [string_to_label(move) for move in valid_moves if move not in fl
 print("newly_legal", newly_legal)
 print("newly_illegal", newly_illegal)
 # %%
-def apply_scale(resid: Float[Tensor, "batch=1 seq d_model"], flip_dir: Float[Tensor, "d_model"], scale: int, pos: int):
+def apply_scale(
+        resid: Float[Tensor, "batch=1 seq d_model"],
+        flip_dir: Float[Tensor, "d_model"],
+        scale: int,
+        pos: int
+    ):
     '''
     Returns a version of the residual stream, modified by the amount `scale` in the 
     direction `flip_dir` at the sequence position `pos`, in the way described above.
     '''
     flip_dir /= flip_dir.norm()
-    resid[0, pos] = scale * flip_dir - flip_dir 
+    dot_pr = resid[0, pos] @ flip_dir 
+    resid[0, pos] -= (scale+1) * dot_pr * flip_dir  
     return resid
 
 tests.test_apply_scale(apply_scale)
@@ -432,3 +438,317 @@ scatter(
     color=color, color_name="Newly Legal", color_continuous_scale="Geyser"
 )
 # %%
+# Part 2️⃣. Looking for modular circuits
+##########################################
+
+# %%
+game_index = 1
+move = 20
+layer = 6
+
+plot_single_board(focus_games_string[game_index, :move+1])
+plot_probe_outputs(layer, game_index, move)
+# %%
+def plot_contributions(contributions, component: str, probe_desc: str="my vs their"):
+    imshow(
+        contributions,
+        facet_col=0,
+        y=list("ABCDEFGH"),
+        facet_labels=[f"Layer {i}" for i in range(7)],
+        title=f"{component} Layer Contributions to {probe_desc} (Game {game_index} Move {move})",
+        aspect="equal",
+        width=1400,
+        height=350
+    )
+
+def calculate_attn_and_mlp_probe_score_contributions(
+    focus_cache: ActivationCache, 
+    my_probe: Float[Tensor, "d_model rows cols"],
+    layer: int,
+    game_index: int, 
+    move: int
+) -> Tuple[Float[Tensor, "layers rows cols"], Float[Tensor, "layers rows cols"]]:
+    attn_contributions = t.zeros((layer+1, rows, cols), dtype=t.float32, device=device)
+    mlp_contributions = t.zeros((layer+1, rows, cols), dtype=t.float32, device=device)
+    for l in range(layer+1):
+        attn_contributions[l] = einops.einsum(
+            focus_cache["attn_out", l][game_index, move],
+            my_probe,
+            "d_model, d_model row col -> row col"
+        )
+        mlp_contributions[l] = einops.einsum(
+            focus_cache["mlp_out", l][game_index, move],
+            my_probe,
+            "d_model, d_model row col -> row col"
+        )
+    return attn_contributions, mlp_contributions
+
+attn_contributions, mlp_contributions = calculate_attn_and_mlp_probe_score_contributions(
+    focus_cache, my_probe, layer, game_index, move)
+
+plot_contributions(attn_contributions, "Attention")
+plot_contributions(mlp_contributions, "MLP")
+# %%
+def calculate_accumulated_probe_score(
+    focus_cache: ActivationCache, 
+    my_probe: Float[Tensor, "d_model rows cols"],
+    layer: int,
+    game_index: int, 
+    move: int
+) -> Float[Tensor, "rows cols"]:
+    return einops.einsum(
+        focus_cache["resid_post", layer][game_index, move],
+        my_probe,
+        "d_model, d_model row col -> row col"
+    )
+
+
+overall_contribution = calculate_accumulated_probe_score(focus_cache, my_probe, layer, game_index, move)
+
+imshow(
+    overall_contribution, 
+    title=f"Overall Probe Score after Layer {layer} for<br>my vs their (Game {game_index} Move {move})",
+)
+# %%
+
+attn_contributions, mlp_contributions = calculate_attn_and_mlp_probe_score_contributions(
+    focus_cache, blank_probe, layer, game_index, move)
+
+plot_contributions(attn_contributions, "Attention", probe_desc="blank vs non-blank")
+plot_contributions(mlp_contributions, "MLP", probe_desc="blank vs non-blank")
+
+overall_contribution = calculate_accumulated_probe_score(focus_cache, blank_probe, layer, game_index, move)
+
+imshow(
+    overall_contribution, 
+    title=f"Overall Probe Score after Layer {layer} for<br>blank vs non-blank (Game {game_index} Move {move})",
+)
+# %%
+# Scale the probes down to be unit norm per cell
+blank_probe_normalised = blank_probe / blank_probe.norm(dim=0, keepdim=True)
+my_probe_normalised = my_probe / my_probe.norm(dim=0, keepdim=True)
+# Set the center blank probes to 0, since they're never blank so the probe is meaningless
+blank_probe_normalised[:, [3, 3, 4, 4], [3, 4, 3, 4]] = 0.
+# %%
+def get_w_in(
+    model: HookedTransformer,
+    layer: int,
+    neuron: int,
+    normalize: bool = False,
+) -> Float[Tensor, "d_model"]:
+    '''
+    Returns the input weights for the given neuron.
+
+    If normalize is True, the weights are normalized to unit norm.
+    '''
+    w = model.W_in[layer, :, neuron].detach().clone()
+    if normalize:
+        w /= w.norm()
+    return w
+    
+
+def get_w_out(
+    model: HookedTransformer,
+    layer: int,
+    neuron: int,
+    normalize: bool = False,
+) -> Float[Tensor, "d_model"]:
+    '''
+    Returns the input weights for the given neuron.
+
+    If normalize is True, the weights are normalized to unit norm.
+    '''
+    w = model.W_out[layer, neuron].detach().clone()
+    if normalize:
+        w /= w.norm()
+    return w
+
+
+def calculate_neuron_input_weights(
+    model: HookedTransformer, 
+    probe: Float[Tensor, "d_model row col"], 
+    layer: int, 
+    neuron: int
+) -> Float[Tensor, "rows cols"]:
+    '''
+    Returns tensor of the input weights for the given neuron, at each square on the board,
+    projected along the corresponding probe directions.
+
+    Assume probe directions are normalized. You should also normalize the model weights.
+    '''
+    neuron_w = get_w_in(model, layer, neuron, normalize=True)
+    return einops.einsum(
+        neuron_w,
+        probe,
+        "d_model, d_model row col -> row col"
+    )
+
+
+def calculate_neuron_output_weights(
+    model: HookedTransformer, 
+    probe: Float[Tensor, "d_model row col"], 
+    layer: int, 
+    neuron: int
+) -> Float[Tensor, "rows cols"]:
+    '''
+    Returns tensor of the output weights for the given neuron, at each square on the board,
+    projected along the corresponding probe directions.
+
+    Assume probe directions are normalized. You should also normalize the model weights.
+    '''
+    neuron_w = get_w_out(model, layer, neuron, normalize=True)
+    return einops.einsum(
+        neuron_w,
+        probe,
+        "d_model, d_model row col -> row col"
+    )
+
+
+tests.test_calculate_neuron_input_weights(calculate_neuron_input_weights, model)
+tests.test_calculate_neuron_output_weights(calculate_neuron_output_weights, model)
+# %%
+layer = 5
+neuron = 1393
+
+w_in_L5N1393_blank = calculate_neuron_input_weights(model, blank_probe_normalised, layer, neuron)
+w_in_L5N1393_my = calculate_neuron_input_weights(model, my_probe_normalised, layer, neuron)
+
+imshow(
+    t.stack([w_in_L5N1393_blank, w_in_L5N1393_my]),
+    facet_col=0,
+    y=[i for i in "ABCDEFGH"],
+    title=f"Input weights in terms of the probe for neuron L{layer}N{neuron}",
+    facet_labels=["Blank In", "My In"],
+    width=750,
+)
+
+#%%
+w_out_L5N1393_blank = calculate_neuron_output_weights(model, blank_probe_normalised, layer, neuron)
+w_out_L5N1393_my = calculate_neuron_output_weights(model, my_probe_normalised, layer, neuron)
+
+imshow(
+    t.stack([w_out_L5N1393_blank, w_out_L5N1393_my]),
+    facet_col=0,
+    y=[i for i in "ABCDEFGH"],
+    title=f"Output weights in terms of the probe for neuron L{layer}N{neuron}",
+    facet_labels=["Blank Out", "My Out"],
+    width=750,
+)
+
+# %%
+w_in_L5N1393 = get_w_in(model, layer, neuron, normalize=True)
+w_out_L5N1393 = get_w_out(model, layer, neuron, normalize=True)
+
+U, S, Vh = t.svd(t.cat([
+    my_probe.reshape(cfg.d_model, 64),
+    blank_probe.reshape(cfg.d_model, 64)
+], dim=1))
+
+# Remove the final four dimensions of U, as the 4 center cells are never blank and so the blank probe is meaningless there
+probe_space_basis = U[:, :-4]
+
+print("Fraction of input weights in probe basis:", (w_in_L5N1393 @ probe_space_basis).norm().item()**2)
+print("Fraction of output weights in probe basis:", (w_out_L5N1393 @ probe_space_basis).norm().item()**2)
+
+#%%
+def kurtosis(tensor: Tensor, reduced_axes, fisher=True):
+    '''
+    Computes the kurtosis of a tensor over specified dimensions.
+    '''
+    return (((tensor - tensor.mean(dim=reduced_axes, keepdim=True)) / tensor.std(dim=reduced_axes, keepdim=True))**4).mean(dim=reduced_axes, keepdim=False) - fisher*3
+
+# %%
+layer = 3
+top_layer_3_neurons = focus_cache["post", layer][:, 3:-3].std(dim=[0, 1]).argsort(descending=True)[:10]
+#top_layer_3_neurons = einops.reduce(focus_cache["post", layer][:, 3:-3], "game move neuron -> neuron", reduction=kurtosis).argsort(descending=True)[:10]
+
+heatmaps_blank = []
+heatmaps_my = []
+
+for neuron in top_layer_3_neurons:
+    neuron = neuron.item()
+    heatmaps_blank.append(calculate_neuron_output_weights(model, blank_probe_normalised, layer, neuron))
+    heatmaps_my.append(calculate_neuron_output_weights(model, my_probe_normalised, layer, neuron))
+
+imshow(
+    t.stack(heatmaps_blank),
+    facet_col=0,
+    y=[i for i in "ABCDEFGH"],
+    title=f"Cosine sim of Output weights and the 'blank color' probe for top layer {layer} neurons",
+    facet_labels=[f"L3N{n.item()}" for n in top_layer_3_neurons],
+    width=1600, height=300,
+)
+
+imshow(
+    t.stack(heatmaps_my),
+    facet_col=0,
+    y=[i for i in "ABCDEFGH"],
+    title=f"Cosine sim of Output weights and the 'my color' probe for top layer {layer} neurons",
+    facet_labels=[f"L3N{n.item()}" for n in top_layer_3_neurons],
+    width=1600, height=300,
+)
+# %%
+layer = 4
+top_layer_4_neurons = focus_cache["post", layer][:, 3:-3].std(dim=[0, 1]).argsort(descending=True)[:10]
+
+heatmaps_blank = []
+heatmaps_my = []
+
+for neuron in top_layer_4_neurons:
+    neuron = neuron.item()
+    heatmaps_blank.append(calculate_neuron_output_weights(model, blank_probe_normalised, layer, neuron))
+    heatmaps_my.append(calculate_neuron_output_weights(model, my_probe_normalised, layer, neuron))
+
+imshow(
+    t.stack(heatmaps_blank),
+    facet_col=0,
+    y=[i for i in "ABCDEFGH"],
+    title=f"Cosine sim of Output weights and the blank color probe for top layer 4 neurons",
+    facet_labels=[f"L4N{n.item()}" for n in top_layer_4_neurons],
+    width=1600, height=300,
+)
+
+imshow(
+    t.stack(heatmaps_my),
+    facet_col=0,
+    y=[i for i in "ABCDEFGH"],
+    title=f"Cosine sim of Output weights and the my color probe for top layer 4 neurons",
+    facet_labels=[f"L4N{n.item()}" for n in top_layer_4_neurons],
+    width=1600, height=300,
+)
+# %%
+'''
+> A cell can only be legal to play in if it is blank (obviously). Since calculating blankness is easy (you just check whether a move was played), the model should be able to do this in a single layer - this is what we see above.
+> Question - if this is true, then what observation should we expect when we compare the neuron output weights to the unembedding weights?
+
+This neuron ouput weights should have high contribution to the unembedding weights because blankness shouldn't change.
+'''
+# %% 
+layer = 4
+top_layer_4_neurons = focus_cache["post", layer][:, 3:-3].std(dim=[0, 1]).argsort(descending=True)[:10]
+W_U_norm = model.W_U / model.W_U.norm(dim=0, keepdim=True)
+W_U_norm = W_U_norm[:, 1:] # Get rid of the passing/dummy first element
+heatmaps_unembed = []
+
+for neuron in top_layer_4_neurons:
+    neuron = neuron.item()
+    w_out = get_w_out(model, layer, neuron)
+    # Fill in the `state` tensor with cosine sims, while skipping the middle 4 squares
+    state = t.zeros((8, 8), device=device)
+    state.flatten()[stoi_indices] = w_out @ W_U_norm
+    heatmaps_unembed.append(state)
+
+imshow(
+    t.stack(heatmaps_unembed),
+    facet_col=0,
+    y=[i for i in "ABCDEFGH"],
+    title=f"Cosine sim of Output weights and the unembed for top layer 4 neurons",
+    facet_labels=[f"L4N{n.item()}" for n in top_layer_4_neurons],
+    width=1600, height=300,
+)
+# %%
+game_index = 4
+move = 20
+
+plot_single_board(focus_games_string[game_index, :move+1], title="Original Game (black plays E0)")
+plot_single_board(focus_games_string[game_index, :move].tolist()+[16], title="Corrupted Game (blank plays C0)")
