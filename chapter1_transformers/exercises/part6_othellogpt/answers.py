@@ -127,6 +127,8 @@ assert board_seqs_int.max() == 60
 num_games, length_of_game = board_seqs_int.shape
 print("Number of games:", num_games)
 print("Length of game:", length_of_game)
+pp(board_seqs_int[10])
+pp(board_seqs_string[10])
 
 # %%
 # Define possible indices (excluding the four center squares)
@@ -142,8 +144,8 @@ def to_board_label(i):
 
 board_labels = list(map(to_board_label, stoi_indices))
 full_board_labels = list(map(to_board_label, range(64)))
-pp(board_labels)
-pp(full_board_labels)
+print(board_labels)
+print(full_board_labels)
 # %%
 moves_int = board_seqs_int[0, :30]
 
@@ -303,7 +305,7 @@ probe_out = einops.einsum(
 )
 
 probe_out_value = probe_out.argmax(dim=-1)
-# %%
+#$$
 correct_middle_odd_answers = (probe_out_value.cpu() == focus_states_flipped_value[:, :-1])[:, 5:-5:2]
 accuracies_odd = einops.reduce(correct_middle_odd_answers.float(), "game move row col -> row col", "mean")
 
@@ -316,23 +318,117 @@ plot_square_as_board(
     facet_col=0, facet_labels=["Black to Play moves", "All Moves"], 
     zmax=0.25, zmin=-0.25
 )
-
 # %%
-# YOUR CODE HERE - define the `cosine_similarities` tensor, to be plotted
+#print((probe_out_value.cpu() == focus_states_flipped_value[:, :-1]).float().mean())
+#pp(einops.reduce(correct_middle_odd_answers.float(), "game move row col -> row col", "mean"))
+#pp(einops.reduce(correct_middle_answers.float(), "game move row col -> row col", "mean"))
+# %%
 
-cosine_similarities = einops.einsum(
-    probe_out_value.cpu()[:, 5:-5],
-    focus_states_flipped_value[:, :-1][:, 5:-5],
-    'game move row col, game move row col -> '
-)
-cosine_similarities /= probe_out_value.cpu()[:, 5:-5].float().norm()
-cosine_similarities /= focus_states_flipped_value[:, :-1][:, 5:-5].float().norm()
-
-
+odd_mode_B_minus_W = full_linear_probe[black_to_play_index, ..., 1] - full_linear_probe[black_to_play_index, ..., 2]
+even_mode_B_minus_W = full_linear_probe[white_to_play_index, ..., 1] - full_linear_probe[white_to_play_index, ..., 2]
+stacked = t.stack([odd_mode_B_minus_W, even_mode_B_minus_W], dim=0)
+by_mode_cell = einops.rearrange(stacked, "mode d_model row col -> (mode row col) d_model")
+by_mode_cell /= by_mode_cell.norm(dim=-1, keepdim=True)
+cosine_similarities = einops.einsum(by_mode_cell, by_mode_cell, "x d_model, y d_model -> x y")
 imshow(
     cosine_similarities,
     title="Cosine Sim of B-W Linear Probe Directions by Cell",
     x=[f"{L} (O)" for L in full_board_labels] + [f"{L} (E)" for L in full_board_labels],
     y=[f"{L} (O)" for L in full_board_labels] + [f"{L} (E)" for L in full_board_labels],
+)
+# %%
+# YOUR CODE HERE - define `blank_probe` and `my_probe`
+blank_probe = linear_probe[..., blank_index] - (linear_probe[..., my_index] + linear_probe[..., their_index]) / 2
+my_probe = linear_probe[..., my_index] - linear_probe[..., their_index]
+tests.test_my_probes(blank_probe, my_probe, linear_probe)
+# %%
+pos = 20
+game_index = 0
+
+# Plot board state
+moves = focus_games_string[game_index, :pos+1]
+plot_single_board(moves)
+
+# Plot corresponding model predictions
+state = t.zeros((8, 8), dtype=t.float32, device=device) - 13.
+state.flatten()[stoi_indices] = focus_logits[game_index, pos].log_softmax(dim=-1)[1:]
+plot_square_as_board(state, zmax=0, diverging_scale=False, title="Log probs")
+# %%
+cell_r = 5
+cell_c = 4
+print(f"Flipping the color of cell {'ABCDEFGH'[cell_r]}{cell_c}")
+
+board = OthelloBoardState()
+board.update(moves.tolist())
+board_state = board.state.copy()
+valid_moves = board.get_valid_moves()
+flipped_board = copy.deepcopy(board)
+flipped_board.state[cell_r, cell_c] *= -1
+flipped_valid_moves = flipped_board.get_valid_moves()
+
+newly_legal = [string_to_label(move) for move in flipped_valid_moves if move not in valid_moves]
+newly_illegal = [string_to_label(move) for move in valid_moves if move not in flipped_valid_moves]
+print("newly_legal", newly_legal)
+print("newly_illegal", newly_illegal)
+# %%
+def apply_scale(resid: Float[Tensor, "batch=1 seq d_model"], flip_dir: Float[Tensor, "d_model"], scale: int, pos: int):
+    '''
+    Returns a version of the residual stream, modified by the amount `scale` in the 
+    direction `flip_dir` at the sequence position `pos`, in the way described above.
+    '''
+    flip_dir /= flip_dir.norm()
+    resid[0, pos] = scale * flip_dir - flip_dir 
+    return resid
+
+tests.test_apply_scale(apply_scale)
+
+
+# %%
+flip_dir = my_probe[:, cell_r, cell_c]
+
+big_flipped_states_list = []
+layer = 4
+scales = [0, 1, 2, 4, 8, 16]
+
+# Iterate through scales, generate a new facet plot for each possible scale
+for scale in scales:
+
+    # Hook function which will perform flipping in the "F4 flip direction"
+    def flip_hook(resid: Float[Tensor, "batch=1 seq d_model"], hook: HookPoint):
+        return apply_scale(resid, flip_dir, scale, pos)
+
+    # Calculate the logits for the board state, with the `flip_hook` intervention
+    # (note that we only need to use :pos+1 as input, because of causal attention)
+    flipped_logits: Tensor = model.run_with_hooks(
+        focus_games_int[game_index:game_index+1, :pos+1],
+        fwd_hooks=[
+            (utils.get_act_name("resid_post", layer), flip_hook),
+        ]
+    ).log_softmax(dim=-1)[0, pos]
+
+    flip_state = t.zeros((64,), dtype=t.float32, device=device) - 10.
+    flip_state[stoi_indices] = flipped_logits.log_softmax(dim=-1)[1:]
+    big_flipped_states_list.append(flip_state)
+
+
+flip_state_big = t.stack(big_flipped_states_list)
+state_big = einops.repeat(state.flatten(), "d -> b d", b=6)
+color = t.zeros((len(scales), 64)).to(device) + 0.2
+for s in newly_legal:
+    color[:, to_string(s)] = 1
+for s in newly_illegal:
+    color[:, to_string(s)] = -1
+
+scatter(
+    y=state_big, 
+    x=flip_state_big, 
+    title=f"Original vs Flipped {string_to_label(8*cell_r+cell_c)} at Layer {layer}", 
+    # labels={"x": "Flipped", "y": "Original"}, 
+    xaxis="Flipped", 
+    yaxis="Original", 
+
+    hover=[f"{r}{c}" for r in "ABCDEFGH" for c in range(8)], 
+    facet_col=0, facet_labels=[f"Translate by {i}x" for i in scales], 
+    color=color, color_name="Newly Legal", color_continuous_scale="Geyser"
 )
 # %%
