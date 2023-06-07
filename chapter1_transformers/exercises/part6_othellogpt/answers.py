@@ -746,9 +746,15 @@ imshow(
     facet_labels=[f"L4N{n.item()}" for n in top_layer_4_neurons],
     width=1600, height=300,
 )
+
+#%%
+# Activation Patching
+#####################
+
 # %%
 game_index = 4
 move = 20
 
 plot_single_board(focus_games_string[game_index, :move+1], title="Original Game (black plays E0)")
 plot_single_board(focus_games_string[game_index, :move].tolist()+[16], title="Corrupted Game (blank plays C0)")
+# %%
