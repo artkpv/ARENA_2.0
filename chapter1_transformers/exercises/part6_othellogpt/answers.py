@@ -300,6 +300,8 @@ focus_states_flipped_one_hot = state_stack_to_one_hot(t.tensor(flipped_focus_sta
 # Take the argmax (i.e. the index of option empty/their/mine)
 focus_states_flipped_value = focus_states_flipped_one_hot.argmax(dim=-1)
 # %%
+print(focus_states_flipped_value.shape)
+# %%
 probe_out = einops.einsum(
     focus_cache["resid_post", 6], linear_probe,
     "game move d_model, d_model row col options -> game move row col options"
@@ -861,7 +863,7 @@ imshow(
     width=900
 )
 # %%
-# game = 18
+game = 18
 # for move in range(60):
 #     if neuron_acts[game, move].item() > 0:
 #         temp_board_state = t.zeros((8, 8), dtype=t.float32, device=device) - 13.
@@ -869,6 +871,7 @@ imshow(
 #         plot_square_as_board(temp_board_state.reshape(8, 8), zmax=0, diverging_scale=False, title=f"Game {game}, move {move}")
 # Result of the above is that it prints boards for even moves from 14 to 42 where C0 is activated. 
 # %%
+game = 18
 moves=slice(30,46)
 imshow(
     focus_states[game, moves],
@@ -882,4 +885,116 @@ imshow(
     width=1000,
     height=1000,
 )
+# %%
+# Max Activating Datasets
+# %%
+def _investigate_the_neuron_max_activating_ds():
+    print(f"{neuron_acts.shape=}")
+    print(f"{focus_states_flipped_value.shape=}")
+    top_moves = neuron_acts > neuron_acts.quantile(0.99)
+
+    #focus_states_flipped_value = focus_states_flipped_value.to(device)
+    board_state_at_top_moves = t.stack([
+        (focus_states_flipped_value == 2)[:, :-1][top_moves].float().mean(0),  # Mine
+        (focus_states_flipped_value == 1)[:, :-1][top_moves].float().mean(0),  # Theirs
+        (focus_states_flipped_value == 0)[:, :-1][top_moves].float().mean(0)   # Blank
+    ])
+
+    plot_square_as_board(
+        board_state_at_top_moves, 
+        facet_col=0,
+        facet_labels=["Mine", "Theirs", "Blank"],
+        title=f"Aggregated top 30 moves for neuron L{layer}N{neuron}", 
+    )
+
+    focus_states_flipped_pm1 = t.zeros_like(focus_states_flipped_value, device=device)
+    focus_states_flipped_pm1[focus_states_flipped_value==2] = -1.
+    focus_states_flipped_pm1[focus_states_flipped_value==1] = 1.
+
+    board_state_at_top_moves = focus_states_flipped_pm1[:, :-1][top_moves].float().mean(0)
+
+    plot_square_as_board(
+        board_state_at_top_moves, 
+        title=f"Aggregated top 30 moves for neuron L{layer}N{neuron} (1 = theirs, -1 = mine)",
+    )
+
+_investigate_the_neuron_max_activating_ds()
+
+# %%
+
+# %%
+# Exercise - Investigating more neurons
+# Your code here - investigate the top 10 neurons by std dev of activations, see what you can find!
+
+def _investigate_more_neurons():
+    layer = 5
+    num = 10
+    
+    focus = focus_cache["post", layer]  # game move dim
+    #focus_cache_mlp = einops.einsum(focus, 'g m d -> d')
+    #print(f"{focus_cache_mlp.shape=}")
+    #top_neurons = einops.reduce(focus, 'g m d -> d', 'mean').topk(num, dim=-1).indices
+    #print(top_neurons)
+    #top_neurons = einops.reduce(focus, 'g m d -> d', 'sum').topk(num, dim=-1).indices
+    #print(top_neurons)
+    top_neurons = focus.std(dim=(0,1)).topk(num).indices
+    print(top_neurons)
+
+    # W_out to W_U : 
+    w_out = model.W_out[layer, top_neurons].detach().clone()
+    print(f'{w_out.shape=}')
+    print(f'{model.W_U[:, 1:].shape=}')
+
+    state = einops.einsum(
+        w_out,
+        model.W_U[:, 1:],
+        'n d, d m -> n m'
+    )
+    output_weights_in_logit_basis = t.zeros((num, 8 * 8), device=device)
+    output_weights_in_logit_basis[:, stoi_indices] = state
+    output_weights_in_logit_basis = einops.rearrange(output_weights_in_logit_basis, 'n (d1 d2) -> n d1 d2', d1=8, d2=8)
+
+    plot_square_as_board(
+        output_weights_in_logit_basis, 
+        title=f"Output weights of top 10 neurons in layer 5, in the output logit basis",
+        facet_col=0, 
+        facet_labels=[f"L5N{n.item()}" for n in top_neurons]
+    )
+
+    # TOP MOVES:
+    board_states = []
+    focus_states_flipped_pm1 = t.zeros_like(focus_states_flipped_value, device=device)
+    focus_states_flipped_pm1[focus_states_flipped_value==2] = -1.
+    focus_states_flipped_pm1[focus_states_flipped_value==1] = 1.
+    for neuron in top_neurons:
+        # Get max activating dataset aggregations
+        neuron_acts = focus_cache["post", 5, "mlp"][:, :, neuron]
+        top_moves = neuron_acts > neuron_acts.quantile(0.99)
+        board_state_at_top_moves = focus_states_flipped_pm1[:, :-1][top_moves].float().mean(0)
+        board_states.append(board_state_at_top_moves)
+    board_states = t.stack(board_states)
+    # neurons_focuses = einops.rearrange(focus, 'g m n -> n g m')[top_neurons]
+    # top_moves = neurons_focuses > neurons_focuses.quantile(0.99, dim=0, keepdim=True)
+    # print(f'{top_moves.shape=}')
+    # nuerons_focus_states_flipped_value = einops.repeat(
+    #     focus_states_flipped_value,
+    #     'g m x y -> n g m x y',
+    #     n=num
+    # )
+    # focus_states_flipped_pm1 = t.zeros_like( nuerons_focus_states_flipped_value, device=device)
+    # focus_states_flipped_pm1[nuerons_focus_states_flipped_value==2] = -1.
+    # focus_states_flipped_pm1[nuerons_focus_states_flipped_value==1] = 1.
+    # print(f'{focus_states_flipped_pm1.shape=}')
+    # board_states = focus_states_flipped_pm1[:, :, :-1][top_moves].float()
+    # print(f'{board_states.shape=}')
+    # board_states = einops.reduce(board_states, 'n g m x y -> n x y', 'mean')
+    # print(f'{board_states.shape=}')
+    plot_square_as_board(
+        board_states, 
+        title=f"Aggregated top 30 moves for each top 10 neuron in layer 5", 
+        facet_col=0, 
+        facet_labels=[f"L5N{n.item()}" for n in top_neurons]
+    )
+
+_investigate_more_neurons()
 # %%
