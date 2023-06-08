@@ -44,21 +44,19 @@ st.sidebar.markdown(r"""
 def section_home():
     # start
     st.markdown(r"""
-<img src="https://raw.githubusercontent.com/callummcdougall/computational-thread-art/master/example_images/misc/magnifying-glass-2.png" width="600">
+<img src="https://raw.githubusercontent.com/callummcdougall/computational-thread-art/master/example_images/misc/rl.png" width="600">
 
-# Chapter 1: Transformers & Mechanistic Interpretability 
+# Chapter 2: Reinforcement Learning
 
-The material on this page covers the next 8 days of the curriculum. It will cover transformers (what they are, how they are trained, how they are used to generate output) as well as mechanistic interpretability (what it is, what are some of the most important results in the field so far, why it might be important for alignment).
+Reinforcement learning is an important field of machine learning. It works by teaching agents to take actions in an environment to maximise their accumulated reward.
+
+In this chapter, you will be learning about some of the fundamentals of RL, and working with OpenAI’s Gym environment to run your own experiments.
 
 Some highlights from this chapter include:
 
-* Building your own transformer from scratch, and using it to sample autoregressive output
-* Using the [TransformerLens](https://github.com/neelnanda-io/TransformerLens) library developed by Neel Nanda to locate induction heads in a 2-layer model
-* Finding a circuit for [indirect object identification](https://arxiv.org/abs/2211.00593) in GPT-2 small
-* Intepreting model trained on toy tasks, e.g. classification of bracket strings, or modular arithmetic
-* Replicating Anthropic's results on [superposition](https://transformer-circuits.pub/2022/toy_model/index.html)
-
-Unlike the first chapter (where all the material was compulsory), this chapter has 4 days of compulsory content and 4 days of bonus content. During the compulsory days you will build and train transformers, and get a basic understanding of mechanistic interpretability of transformer models which includes induction heads & use of TransformerLens. The next 4 days, you have the option to continue with whatever material interests you out of the remaining sets of exercises. There will also be bonus material if you want to leave the beaten track of exercises all together!
+* Building your own agent to play the multi-armed bandit problem, implementing methods from [Sutton & Bardo](https://www.andrew.cmu.edu/course/10-703/textbook/BartoSutton.pdf)
+* Implementing a Deep Q-Network (DQN) and Proximal Policy Optimization (PPO) to play the CartPole game
+* Applying RLHF to autoregressive transformers like the ones you built in the previous chapter
 
 ---
 
@@ -84,17 +82,17 @@ First, clone the [GitHub repo](https://github.com/callummcdougall/ARENA_2.0) int
 ```
 .
 ├── chapter0_fundamentals
+├── chapter1_transformers
+├── chapter2_rl
 │   ├── exercises
-│   │   ├── part1_ray_tracing
+│   │   ├── part1_intro_to_rl
 │   │   │   ├── solutions.py
 │   │   │   ├── tests.py
 │   │   │   └── answers.py*
-│   │   ├── part2_cnns
+│   │   ├── part2_dqn
 │   │   ⋮    ⋮
 │   └── instructions
 │       └── Home.py
-├── chapter1_transformers
-├── chapter2_rl
 ├── chapter3_training_at_scale
 └── requirements.txt
 ```
@@ -289,23 +287,7 @@ You can see all files in [this Google Drive folder](https://drive.google.com/dri
 <details>
 <summary>Click this dropdown for links to each of the colab exercises.</summary>
 
-<div style='text-align: center'>
-<img src="https://raw.githubusercontent.com/callummcdougall/computational-thread-art/master/example_images/misc/transformer-building.png" width="160" style="margin-bottom:3px;margin-top:15px">
-
-Transformer from scratch<br>[**exercises**](https://drive.google.com/file/d/1Zl3zSdli_epSfaoQ_HeBCuE6dkGWTowd/view?usp=sharing) | [**solutions**](https://drive.google.com/file/d/1neFAal6woQ7p-u0LpU7ZqvHeEaJ6j2DG/view?usp=share_link)
-
-<img src="https://raw.githubusercontent.com/callummcdougall/computational-thread-art/master/example_images/misc/circuit.png" width="160" style="margin-bottom:3px;margin-top:15px">
-
-Intro to Mechanistic Interpretability<br>[**exercises**](https://drive.google.com/file/d/1w9zCWpE7xd1sDuMT_rsjARfFozeWiKF4/view?usp=share_link) | [**solutions**](https://drive.google.com/file/d/10tzGmOCQb3LoDB69vPFw71DV2d395hJl/view?usp=share_link)
-
-<img src="https://raw.githubusercontent.com/callummcdougall/computational-thread-art/master/example_images/misc/leaves.png" width="160" style="margin-bottom:3px;margin-top:15px">
-
-Indirct Object Identification<br>[**exercises**](https://drive.google.com/file/d/1M4F9SU_vHUUCQkhmtWnmY2eomOJu5B5s/view?usp=share_link) | [**solutions**](https://drive.google.com/file/d/1AA0wj2sHoZwtmy82WXORcZzk9urL1lVA/view?usp=share_link)
-
-<img src="https://raw.githubusercontent.com/callummcdougall/computational-thread-art/master/example_images/misc/gears2.png" width="160" style="margin-bottom:3px;margin-top:15px">
-
-Interpretability on an Algorithmic Model<br>[**exercises**](https://drive.google.com/file/d/1BYarO508z7stRFXZ3T92rI6OtMqP3w7E/view?usp=share_link) | [**solutions**](https://drive.google.com/file/d/1yILyi5dD3wc4o3vHc1MfbpAlWljyXU-U/view?usp=share_link)
-</div>
+Coming soon!
 
 </details>
 

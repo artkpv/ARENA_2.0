@@ -147,7 +147,7 @@ This is a fine first-pass understanding of how the circuit works. A few other fe
 <details>
 <summary>Diagram 2 (complex)</summary>
 
-<img src="https://raw.githubusercontent.com/callummcdougall/computational-thread-art/master/example_images/misc/ioi-main-full-d.png" width="1250">
+<img src="https://raw.githubusercontent.com/callummcdougall/computational-thread-art/master/example_images/misc/ioi-main-full-corrected.png" width="1250">
 
 </details>
 
@@ -925,7 +925,7 @@ imshow(
 )
 ```
 
-We see that only a few heads really matter - heads 9.6 and 9.9 contribute a lot positively (explaining why attention layer 9 is so important), while heads 10.7 and 11.10 contribute a lot negatively (explaining why attention layer 10 and layer 11 are actively harmful). These correspond to (some of) the name movers and negative name movers discussed in the paper. There are also several heads that matter positively or negatively but less strongly (other name movers and backu name movers)
+We see that only a few heads really matter - heads 9.6 and 9.9 contribute a lot positively (explaining why attention layer 9 is so important), while heads 10.7 and 11.10 contribute a lot negatively (explaining why attention layer 10 and layer 11 are actively harmful). These correspond to (some of) the name movers and negative name movers discussed in the paper. There are also several heads that matter positively or negatively but less strongly (other name movers and backup name movers)
 
 There are a few meta observations worth making here - our model has 144 heads, yet we could localise this behaviour to a handful of specific heads, using straightforward, general techniques. This supports the claim in [A Mathematical Framework](https://transformer-circuits.pub/2021/framework/index.html) that attention heads are the right level of abstraction to understand attention. It also really surprising that there are *negative* heads - eg 10.7 makes the incorrect logit 7x *more* likely. I'm not sure what's going on there, though the paper discusses some possibilities.
 
@@ -1045,6 +1045,15 @@ You're taking the mean over 8 sentences: 4 with an `ABA` structure (i.e. `"When 
 This is a good lesson in making sure you're aware of what it is you're plotting!
 </details>
 
+**Question** - for your top 3 positive logit attribution heads, you should see `" gave"` also attending to `" Mary"`. Can you guess why?
+
+<details>
+<summary>Answer</summary>
+
+This is (probably) also the IOI circuit in action! These heads are attending to `" Mary"` because they're completing the sentence "When John and Mary went to the store, John gave Mary..."`. This requires the same algorithm - identifying the indirect object in the sentence, and then predicting it as the next token.
+
+Also note that the comma is attending to both John and Mary - this is probably because either name following the comma is a logical continuation of the sentence.
+</details>
 
 """, unsafe_allow_html=True)
 
@@ -2589,8 +2598,8 @@ def get_path_patch_head_to_heads(
     patching_metric: Callable,
     new_dataset: IOIDataset = abc_dataset,
     orig_dataset: IOIDataset = ioi_dataset,
-    new_cache: Optional[ActivationCache] = None,
-    orig_cache: Optional[ActivationCache] = None,
+    new_cache: Optional[ActivationCache] = abc_cache,
+    orig_cache: Optional[ActivationCache] = ioi_cache,
 ) -> Float[Tensor, "layer head"]:
     '''
     Performs path patching (see algorithm in appendix B of IOI paper), with:
@@ -2599,7 +2608,7 @@ def get_path_patch_head_to_heads(
         receiver node = input to a later head (or set of heads)
 
     The receiver node is specified by receiver_heads and receiver_input.
-    Example (for S-inhibition path patching the queries):
+    Example (for S-inhibition path patching the values):
         receiver_heads = [(8, 6), (8, 10), (7, 9), (7, 3)],
         receiver_input = "v"
 
@@ -2662,8 +2671,8 @@ def get_path_patch_head_to_heads(
     patching_metric: Callable,
     new_dataset: IOIDataset = abc_dataset,
     orig_dataset: IOIDataset = ioi_dataset,
-    new_cache: Optional[ActivationCache] = None,
-    orig_cache: Optional[ActivationCache] = None,
+    new_cache: Optional[ActivationCache] = abc_cache,
+    orig_cache: Optional[ActivationCache] = ioi_cache,
 ) -> Float[Tensor, "layer head"]:
     '''
     Performs path patching (see algorithm in appendix B of IOI paper), with:
@@ -3010,7 +3019,7 @@ for i, name in enumerate(["name mover", "negative name mover"]):
         colnames=["Head", "Score"],
         cols=[
             list(map(str, heads[name])) + ["[dark_orange bold]Average"],
-            [f"{copying_results[i, layer, head]:.2%}" for (layer, head) in heads[name]] + [f"[dark_orange bold]{copying_results[i].mean():.2%}"]
+            [f"{copying_results[i, layer-1, head]:.2%}" for (layer, head) in heads[name]] + [f"[dark_orange bold]{copying_results[i].mean():.2%}"]
         ]
     )
 ```
