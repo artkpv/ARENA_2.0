@@ -54,7 +54,10 @@ device = t.device("cuda" if t.cuda.is_available() else "cpu")
 t.set_grad_enabled(False)
 
 MAIN = __name__ == "__main__"
+
 # %%
+alpha = "ABCDEFGH"
+
 os.chdir(section_dir)
 
 OTHELLO_ROOT = (section_dir / "othello_world").resolve()
@@ -211,8 +214,16 @@ class LitLinearProbe(pl.LightningModule):
             'g move dm, mode dm r c o -> mode g move r c o'
         )
         log_probs = logits.log_softmax(dim=-1)
-        pred = (state_stack_one_hot * log_probs).sum(dim=-1) # -> mode g move r c
-        pred = pred.mean(dim=1)  # -> mode move r c 
+
+        pred = einops.reduce(
+            log_probs * state_stack_one_hot,
+            "modes batch pos rows cols options -> modes pos rows cols",
+            "mean"
+        ) * self.args.options # Multiply to correct for the mean over options
+
+        #pred = (state_stack_one_hot * log_probs).sum(dim=-1)# -> mode g move r c
+        #pred = pred.mean(dim=1)  * self.args.options  # -> mode move r c 
+
         loss_even = -pred[0, 0::2].mean(dim=0)  # -> r c 
         loss_odd = -pred[1, 1::2].mean(dim=0)  # -> r c
         loss_all = -pred[2, :].mean(dim=0)  # -> r c
@@ -254,6 +265,10 @@ trainer.fit(model=litmodel)
 
 # %%
 
+num_games = 50
+focus_games_int = board_seqs_int[:num_games]
+focus_logits, focus_cache = model.run_with_cache(focus_games_int[:, :-1].to(device))
+
 black_to_play_index = 0
 white_to_play_index = 1
 blank_index = 0
@@ -274,12 +289,30 @@ probe_out = einops.einsum(
 probe_out_value = probe_out.argmax(dim=-1)
 
 # Getting the correct answers in the odd cases
+
+focus_states = np.zeros((num_games, 60, 8, 8), dtype=np.float32)
+alternating = np.array([-1 if i%2 == 0 else 1 for i in range(focus_games_int.shape[1])])
+flipped_focus_states = focus_states * alternating[None, :, None, None]
+focus_states_flipped_one_hot = state_stack_to_one_hot(t.tensor(flipped_focus_states))
+focus_states_flipped_value = focus_states_flipped_one_hot.argmax(dim=-1)
 correct_middle_odd_answers = (probe_out_value == focus_states_flipped_value[:, :-1])[:, 5:-5:2]
 accuracies_odd = einops.reduce(correct_middle_odd_answers.float(), "game move row col -> row col", "mean")
 
 # Getting the correct answers in all cases
 correct_middle_answers = (probe_out_value == focus_states_flipped_value[:, :-1])[:, 5:-5]
 accuracies = einops.reduce(correct_middle_answers.float(), "game move row col -> row col", "mean")
+
+def plot_square_as_board(state, diverging_scale=True, **kwargs):
+    '''Takes a square input (8 by 8) and plot it as a board. Can do a stack of boards via facet_col=0'''
+    kwargs = {
+        "y": [i for i in alpha],
+        "x": [str(i) for i in range(8)],
+        "color_continuous_scale": "RdBu" if diverging_scale else "Blues",
+        "color_continuous_midpoint": 0. if diverging_scale else None,
+        "aspect": "equal",
+        **kwargs
+    }
+    imshow(state, **kwargs)
 
 plot_square_as_board(
     1 - t.stack([accuracies_odd, accuracies], dim=0), 
