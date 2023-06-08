@@ -320,3 +320,4 @@ plot_square_as_board(
     facet_col=0, facet_labels=["Black to Play moves", "All Moves"], 
     zmax=0.25, zmin=-0.25
 )
+# %%
