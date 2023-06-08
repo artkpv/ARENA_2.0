@@ -888,7 +888,12 @@ imshow(
 # %%
 # Max Activating Datasets
 # %%
+focus_states_flipped_pm1 = t.zeros_like(focus_states_flipped_value, device=device)
+focus_states_flipped_pm1[focus_states_flipped_value==2] = -1.
+focus_states_flipped_pm1[focus_states_flipped_value==1] = 1.
+
 def _investigate_the_neuron_max_activating_ds():
+    global focus_states_flipped_pm1
     print(f"{neuron_acts.shape=}")
     print(f"{focus_states_flipped_value.shape=}")
     top_moves = neuron_acts > neuron_acts.quantile(0.99)
@@ -906,10 +911,6 @@ def _investigate_the_neuron_max_activating_ds():
         facet_labels=["Mine", "Theirs", "Blank"],
         title=f"Aggregated top 30 moves for neuron L{layer}N{neuron}", 
     )
-
-    focus_states_flipped_pm1 = t.zeros_like(focus_states_flipped_value, device=device)
-    focus_states_flipped_pm1[focus_states_flipped_value==2] = -1.
-    focus_states_flipped_pm1[focus_states_flipped_value==1] = 1.
 
     board_state_at_top_moves = focus_states_flipped_pm1[:, :-1][top_moves].float().mean(0)
 
@@ -963,9 +964,6 @@ def _investigate_more_neurons():
 
     # TOP MOVES:
     board_states = []
-    focus_states_flipped_pm1 = t.zeros_like(focus_states_flipped_value, device=device)
-    focus_states_flipped_pm1[focus_states_flipped_value==2] = -1.
-    focus_states_flipped_pm1[focus_states_flipped_value==1] = 1.
     for neuron in top_neurons:
         # Get max activating dataset aggregations
         neuron_acts = focus_cache["post", 5, "mlp"][:, :, neuron]
@@ -995,6 +993,163 @@ def _investigate_more_neurons():
         facet_col=0, 
         facet_labels=[f"L5N{n.item()}" for n in top_neurons]
     )
+    '''
+    The plots above for L5N566: output weights in output logit basis for this neuron is zero.
+    E4 for max activating dataset aggregation is -1 while others are not (0..1).
+    This activated when E4 is mine?
+    '''
 
 _investigate_more_neurons()
+# %%
+# Spectrum Plots
+c0 = focus_states_flipped_pm1[:, :, 2, 0]
+d1 = focus_states_flipped_pm1[:, :, 3, 1]
+e2 = focus_states_flipped_pm1[:, :, 4, 2]
+
+label = (c0==0) & (d1==-1) & (e2==1)
+
+neuron =  1393
+neuron_acts = focus_cache["post", 5][:, :, neuron]
+
+def make_spectrum_plot(
+    neuron_acts: Float[Tensor, "batch"],
+    label: Bool[Tensor, "batch"],
+    **kwargs
+) -> None:
+    '''
+    Generates a spectrum plot from the neuron activations and a set of labels.
+    '''
+    px.histogram(
+        pd.DataFrame({"acts": neuron_acts.tolist(), "label": label.tolist()}), 
+        x="acts", color="label", histnorm="percent", barmode="group", nbins=100, 
+        title=f"Spectrum plot for neuron L5N{neuron} testing C0==BLANK & D1==THEIRS & E2==MINE",
+        color_discrete_sequence=px.colors.qualitative.Bold
+    ).show()
+
+make_spectrum_plot(neuron_acts.flatten(), label[:, :-1].flatten())
+# %%
+pp(f'Num of states with C0==BLANK & D1==THEIRS & E2==MINE: {label.int().sum()}')
+pp(f'Num of games with C0==BLANK & D1==THEIRS & E2==MINE: {label.any(dim=1).int().sum()}')
+low_labeled_moves_games = (label.float().sum(dim=1)).argsort()[-3:]
+
+# %%
+# for game in low_labeled_moves_games:
+#     moves=slice(0,25)
+#     imshow(
+#         focus_states[game, moves],
+#         facet_col=0,
+#         facet_col_wrap=5,
+#         y=list("ABCDEFGH"),
+#         facet_labels=[f"Move {i}" for i in list(range(60))[moves]],
+#         title=f"First moves of {game} game",
+#         color_continuous_scale="Greys",
+#         coloraxis_showscale=False,
+#         width=1000,
+#         height=1000,
+#     )
+# %%
+game = 32
+# Plot neuron_acts using plotly for the game 32 along each move
+px.line(
+    pd.DataFrame({"acts": neuron_acts[game].tolist()}),
+    title=f"Neuron L5N{neuron} activations for game {game}",
+    color_discrete_sequence=px.colors.qualitative.Bold,
+).show()
+
+moves=slice(30,49)
+imshow(
+    focus_states[game, moves],
+    facet_col=0,
+    facet_col_wrap=5,
+    y=list("ABCDEFGH"),
+    facet_labels=[f"Move {i}" for i in list(range(60))[moves]],
+    title=f"Moves of {game} game",
+    color_continuous_scale="Greys",
+    coloraxis_showscale=False,
+    width=1000,
+    height=1000,
+)
+'''
+Observations: (Wrong? because wrong plot above)
+- In game 32, there are only 4 peaks in activation for the neuron 1393: 35, 37, 39, 42 board states. 
+- 35 state has C0=BLANK & D1=THIERS & E2=MINE. Playing for black. 
+  This is the _only_ way to play at C0 for blacks.
+- 37 state is the same as 35 with regard to C0.
+- 39 state. Has also _only one_ direction for black to 
+  put its piece at C0 but now it is horizontal. 
+
+'''
+# %%
+# Exercise - make more spectrum plots
+layer = 5
+neuron =  566
+e5 = focus_states_flipped_pm1[:, :, 4, 5] 
+label = e5 == -1  # E5 is mine.
+neuron_acts = focus_cache["post", layer][:, :, neuron]
+
+def make_spectrum_plot(
+    neuron_acts: Float[Tensor, "batch"],
+    label: Bool[Tensor, "batch"],
+    **kwargs
+) -> None:
+    '''
+    Generates a spectrum plot from the neuron activations and a set of labels.
+    '''
+    px.histogram(
+        pd.DataFrame({"acts": neuron_acts.tolist(), "label": label.tolist()}), 
+        x="acts", color="label", histnorm="percent", barmode="group", nbins=100, 
+        title=f"Spectrum plot for neuron L5N{neuron} testing E5==MINE",
+        color_discrete_sequence=px.colors.qualitative.Bold
+    ).show()
+
+make_spectrum_plot(neuron_acts.flatten(), label[:, :-1].flatten())
+'''
+Observations: the plot for the above has most of labeled and not labeled moves
+in -0.2..0 interval (negative, GELU).
+'''
+# %%
+labeled_moves_games = (label.float().sum(dim=1)).argsort()[-3:]
+# %%
+for game in labeled_moves_games:
+    moves=slice(0,25)
+    imshow(
+        focus_states[game, moves],
+        facet_col=0,
+        facet_col_wrap=5,
+        y=list("ABCDEFGH"),
+        facet_labels=[f"Move {i}" for i in list(range(60))[moves]],
+        title=f"First moves of {game} game",
+        color_continuous_scale="Greys",
+        coloraxis_showscale=False,
+        width=1000,
+        height=1000,
+    )
+# %%
+
+# %%
+game = 13
+# Plot neuron_acts using plotly for the game 32 along each move
+px.line(
+    pd.DataFrame({"acts": neuron_acts[game].tolist()}),
+    title=f"Neuron L5N{neuron} activations for game {game}",
+    color_discrete_sequence=px.colors.qualitative.Bold,
+).show()
+'''
+The plot above shows jagged line, with peaks at even (black) moves. Till move 56 (captured by white).
+'''
+# %%
+game = 13
+moves=slice(40,58)
+imshow(
+    focus_states[game, moves],
+    facet_col=0,
+    facet_col_wrap=5,
+    y=list("ABCDEFGH"),
+    facet_labels=[f"Move {i}" for i in list(range(60))[moves]],
+    title=f"First moves of {game} game",
+    color_continuous_scale="Greys",
+    coloraxis_showscale=False,
+    width=1000,
+    height=1000,
+)
 # %%
