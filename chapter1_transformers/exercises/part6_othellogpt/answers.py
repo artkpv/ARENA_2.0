@@ -1153,3 +1153,12 @@ imshow(
     height=1000,
 )
 # %%
+imshow(
+    focus_states[0, :16],
+    facet_col=0,
+    facet_col_wrap=8,
+    facet_labels=[f"Move {i}" for i in range(1, 17)],
+    title="First 16 moves of first game",
+    color_continuous_scale="Greys",
+)
+# %%
