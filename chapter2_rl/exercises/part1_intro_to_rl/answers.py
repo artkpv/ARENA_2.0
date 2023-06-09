@@ -218,6 +218,7 @@ if MAIN:
     env = gym.make("ArmedBanditTestbed-v0", num_arms=num_arms, stationary=stationary)
 
     for optimism in [0, 5]:
+        print('For optimism = ', optimism)
         agent = RewardAveraging(num_arms, 0, epsilon=0.1, optimism=optimism)
         (rewards, num_correct) = run_agent(env, agent, n_runs=N_RUNS, base_seed=1)
         all_rewards.append(rewards)
@@ -227,4 +228,84 @@ if MAIN:
         print(f" -> Average reward: {rewards.mean():.4f}")
 
     utils.plot_rewards(all_rewards, names, moving_avg_window=15)
+# %%
+class CheatyMcCheater(Agent):
+    def __init__(self, num_arms: int, seed: int):
+        self.best_arm = 0
+
+    def get_action(self):
+        return self.best_arm
+
+    def observe(self, action: int, reward: float, info: dict):
+        self.best_arm = info['best_arm']
+
+    def __repr__(self):
+        return "Cheater"
+
+
+cheater = CheatyMcCheater(num_arms, 0)
+reward_averaging = RewardAveraging(num_arms, 0, epsilon=0.1, optimism=0)
+random = RandomAgent(num_arms, 0)
+
+names = []
+all_rewards = []
+
+for agent in [cheater, reward_averaging, random]:
+    (rewards, num_correct) = run_agent(env, agent, n_runs=N_RUNS, base_seed=1)
+    names.append(str(agent))
+    all_rewards.append(rewards)
+
+utils.plot_rewards(all_rewards, names, moving_avg_window=15)
+
+assert (all_rewards[0] < all_rewards[1]).mean() < 0.001, "Cheater should be better than reward averaging"
+print("Tests passed!")
+
+# %%
+class UCBActionSelection(Agent):
+    def __init__(self, num_arms: int, seed: int, c: float, eps: float = 1e-6):
+        self.epsilon = eps
+        self.c = c
+        super().__init__(num_arms, seed)
+
+    def get_action(self):
+        if self.rng.random() < self.epsilon:
+            return self.rng.integers(low=0, high=self.num_arms, size=1).item()
+        return int(np.argmax(
+            self.avg_rewards 
+            + self.c * np.sqrt(
+                np.log(self.steps + 1) 
+                / (self.num_taken + self.epsilon)
+            )
+        ))
+
+    def observe(self, action, reward, info):
+        self.steps += 1
+        self.num_taken[action] += 1
+        self.avg_rewards[action] += (reward - self.avg_rewards[action]) / self.num_taken[action]
+
+    def reset(self, seed: int):
+        super().reset(seed)
+        self.steps = 0
+        self.avg_rewards = np.full(shape=num_arms, fill_value=0.0, dtype=float)
+        self.num_taken = np.zeros(shape=num_arms, dtype=int)
+
+    def __repr__(self):
+        return f"UCB(c={self.c})"
+
+
+cheater = CheatyMcCheater(num_arms, 0)
+reward_averaging = RewardAveraging(num_arms, 0, epsilon=0.1, optimism=0)
+reward_averaging_optimism = RewardAveraging(num_arms, 0, epsilon=0.1, optimism=5)
+ucb = UCBActionSelection(num_arms, 0, c=2.0)
+random = RandomAgent(num_arms, 0)
+
+names = []
+all_rewards = []
+
+for agent in [cheater, reward_averaging, reward_averaging_optimism, ucb, random]:
+    (rewards, num_correct) = run_agent(env, agent, n_runs=N_RUNS, base_seed=1)
+    names.append(str(agent))
+    all_rewards.append(rewards)
+
+utils.plot_rewards(all_rewards, names, moving_avg_window=15)
 # %%
