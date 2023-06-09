@@ -204,7 +204,7 @@ print("focus states:", focus_states.shape)
 print("focus_valid_moves", tuple(focus_valid_moves.shape))
 # %%
 imshow(
-    focus_states[0, :17],
+    focus_states[0, :16],
     facet_col=0,
     facet_col_wrap=8,
     facet_labels=[f"Move {i}" for i in range(1, 17)],
@@ -295,7 +295,7 @@ alternating = np.array([-1 if i%2 == 0 else 1 for i in range(focus_games_int.sha
 flipped_focus_states = focus_states * alternating[None, :, None, None]
 
 # We now convert to one-hot encoded vectors
-focus_states_flipped_one_hot = state_stack_to_one_hot(t.tensor(flipped_focus_states))
+focus_states_flipped_one_hot = state_stack_to_one_hot(t.tensor(flipped_focus_states, device=device))
 
 # Take the argmax (i.e. the index of option empty/their/mine)
 focus_states_flipped_value = focus_states_flipped_one_hot.argmax(dim=-1)
@@ -309,7 +309,8 @@ probe_out = einops.einsum(
 
 probe_out_value = probe_out.argmax(dim=-1)
 #$$
-correct_middle_odd_answers = (probe_out_value.cpu() == focus_states_flipped_value[:, :-1])[:, 5:-5:2]
+## TODO: This breaks when on CUDA:
+correct_middle_odd_answers = (probe_out_value.to(device) == focus_states_flipped_value[:, :-1])[:, 5:-5:2]
 accuracies_odd = einops.reduce(correct_middle_odd_answers.float(), "game move row col -> row col", "mean")
 
 correct_middle_answers = (probe_out_value.cpu() == focus_states_flipped_value[:, :-1])[:, 5:-5]
@@ -893,7 +894,6 @@ focus_states_flipped_pm1[focus_states_flipped_value==2] = -1.
 focus_states_flipped_pm1[focus_states_flipped_value==1] = 1.
 
 def _investigate_the_neuron_max_activating_ds():
-    global focus_states_flipped_pm1
     print(f"{neuron_acts.shape=}")
     print(f"{focus_states_flipped_value.shape=}")
     top_moves = neuron_acts > neuron_acts.quantile(0.99)
@@ -1025,6 +1025,9 @@ def make_spectrum_plot(
         title=f"Spectrum plot for neuron L5N{neuron} testing C0==BLANK & D1==THEIRS & E2==MINE",
         color_discrete_sequence=px.colors.qualitative.Bold
     ).show()
+    # 
+    # TODO. This display a wrong plot: true / false items shouldn't be near zero.
+    #  Callum: I think it ended up being the focus_states_flipped_pm1 tensor. Maybe go back in the page and see exactly where that was defined, make sure it wasn't accidentally redefined or anything? Also inspect the elements of that tensor, see if they're what you expect
 
 make_spectrum_plot(neuron_acts.flatten(), label[:, :-1].flatten())
 # %%
@@ -1056,13 +1059,12 @@ px.line(
     color_discrete_sequence=px.colors.qualitative.Bold,
 ).show()
 
-moves=slice(30,49)
 imshow(
-    focus_states[game, moves],
+    focus_states[game, 30:49],
     facet_col=0,
     facet_col_wrap=5,
     y=list("ABCDEFGH"),
-    facet_labels=[f"Move {i}" for i in list(range(60))[moves]],
+    facet_labels=[f"Move {i}" for i in range(30,49)],
     title=f"Moves of {game} game",
     color_continuous_scale="Greys",
     coloraxis_showscale=False,
@@ -1070,6 +1072,7 @@ imshow(
     height=1000,
 )
 '''
+TODO: The above game displayed incorrectely: moves are mixed, I see it goes (left to right, top to bottom: 38 30 31 32 33 43 ...).
 Observations: (Wrong? because wrong plot above)
 - In game 32, there are only 4 peaks in activation for the neuron 1393: 35, 37, 39, 42 board states. 
 - 35 state has C0=BLANK & D1=THIERS & E2=MINE. Playing for black. 
@@ -1139,13 +1142,12 @@ The plot above shows jagged line, with peaks at even (black) moves. Till move 56
 '''
 # %%
 game = 13
-moves=slice(40,58)
 imshow(
-    focus_states[game, moves],
+    focus_states[game, 40:58],
     facet_col=0,
     facet_col_wrap=5,
     y=list("ABCDEFGH"),
-    facet_labels=[f"Move {i}" for i in list(range(60))[moves]],
+    facet_labels=[f"Move {i}" for i in range(40,58)],
     title=f"First moves of {game} game",
     color_continuous_scale="Greys",
     coloraxis_showscale=False,
