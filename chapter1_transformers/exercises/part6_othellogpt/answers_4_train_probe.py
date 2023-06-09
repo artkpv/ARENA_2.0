@@ -262,6 +262,7 @@ trainer = pl.Trainer(
     log_every_n_steps=1,
 )
 trainer.fit(model=litmodel)
+# TODO: The above doesn't converge. It stays around 120 but should drop to about 10.
 
 # %%
 

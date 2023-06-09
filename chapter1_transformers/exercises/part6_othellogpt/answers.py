@@ -295,7 +295,7 @@ alternating = np.array([-1 if i%2 == 0 else 1 for i in range(focus_games_int.sha
 flipped_focus_states = focus_states * alternating[None, :, None, None]
 
 # We now convert to one-hot encoded vectors
-focus_states_flipped_one_hot = state_stack_to_one_hot(t.tensor(flipped_focus_states))
+focus_states_flipped_one_hot = state_stack_to_one_hot(t.tensor(flipped_focus_states, device=device))
 
 # Take the argmax (i.e. the index of option empty/their/mine)
 focus_states_flipped_value = focus_states_flipped_one_hot.argmax(dim=-1)
@@ -893,7 +893,6 @@ focus_states_flipped_pm1[focus_states_flipped_value==2] = -1.
 focus_states_flipped_pm1[focus_states_flipped_value==1] = 1.
 
 def _investigate_the_neuron_max_activating_ds():
-    global focus_states_flipped_pm1
     print(f"{neuron_acts.shape=}")
     print(f"{focus_states_flipped_value.shape=}")
     top_moves = neuron_acts > neuron_acts.quantile(0.99)
@@ -1025,6 +1024,9 @@ def make_spectrum_plot(
         title=f"Spectrum plot for neuron L5N{neuron} testing C0==BLANK & D1==THEIRS & E2==MINE",
         color_discrete_sequence=px.colors.qualitative.Bold
     ).show()
+    # 
+    # TODO. This display a wrong plot: true / false items shouldn't be near zero.
+    #  Callum: I think it ended up being the focus_states_flipped_pm1 tensor. Maybe go back in the page and see exactly where that was defined, make sure it wasn't accidentally redefined or anything? Also inspect the elements of that tensor, see if they're what you expect
 
 make_spectrum_plot(neuron_acts.flatten(), label[:, :-1].flatten())
 # %%
