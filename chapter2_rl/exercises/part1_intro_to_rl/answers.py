@@ -91,6 +91,7 @@ class MultiArmedBandit(gym.Env):
         plt.xlabel("Bandit Arm")
         plt.ylabel("Reward Distribution")
         plt.show()
+
 # %%
 gym.envs.registration.register(
     id="ArmedBanditTestbed-v0",
@@ -125,6 +126,7 @@ class Agent:
     def reset(self, seed: int) -> None:
         self.rng = np.random.default_rng(seed)
 
+# %%
 
 def run_episode(env: gym.Env, agent: Agent, seed: int):
 
@@ -182,4 +184,47 @@ assert np.isclose(all_rewards.mean(), 0, atol=0.05), "Random agent should be get
 
 print("All tests passed!")
 
+# %%
+class RewardAveraging(Agent):
+    def __init__(self, num_arms: int, seed: int, epsilon: float, optimism: float):
+        self.epsilon = epsilon
+        self.optimism = optimism
+        super().__init__(num_arms, seed)
+
+    def get_action(self):
+        if self.rng.random() < self.epsilon:
+            return self.rng.integers(low=0, high=self.num_arms, size=1).item()
+        return int(np.argmax(self.avg_rewards))
+
+    def observe(self, action, reward, info):
+        self.num_taken[action] += 1
+        self.avg_rewards[action] += (reward - self.avg_rewards[action]) / self.num_taken[action]
+
+    def reset(self, seed: int):
+        super().reset(seed)
+        self.avg_rewards = np.full(shape=num_arms, fill_value=self.optimism, dtype=float)
+        self.num_taken = np.zeros(shape=num_arms, dtype=int)
+        
+    def __repr__(self):
+        # For the legend, when plotting
+        return f"RewardAveraging(eps={self.epsilon}, optimism={self.optimism})"
+
+# %%
+if MAIN:
+    num_arms = 10
+    stationary = True
+    names = []
+    all_rewards = []
+    env = gym.make("ArmedBanditTestbed-v0", num_arms=num_arms, stationary=stationary)
+
+    for optimism in [0, 5]:
+        agent = RewardAveraging(num_arms, 0, epsilon=0.1, optimism=optimism)
+        (rewards, num_correct) = run_agent(env, agent, n_runs=N_RUNS, base_seed=1)
+        all_rewards.append(rewards)
+        names.append(str(agent))
+        print(agent)
+        print(f" -> Frequency of correct arm: {num_correct.mean():.4f}")
+        print(f" -> Average reward: {rewards.mean():.4f}")
+
+    utils.plot_rewards(all_rewards, names, moving_avg_window=15)
 # %%
