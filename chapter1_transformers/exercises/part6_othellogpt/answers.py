@@ -204,7 +204,7 @@ print("focus states:", focus_states.shape)
 print("focus_valid_moves", tuple(focus_valid_moves.shape))
 # %%
 imshow(
-    focus_states[0, :17],
+    focus_states[0, :16],
     facet_col=0,
     facet_col_wrap=8,
     facet_labels=[f"Move {i}" for i in range(1, 17)],
@@ -309,7 +309,8 @@ probe_out = einops.einsum(
 
 probe_out_value = probe_out.argmax(dim=-1)
 #$$
-correct_middle_odd_answers = (probe_out_value.cpu() == focus_states_flipped_value[:, :-1])[:, 5:-5:2]
+## TODO: This breaks when on CUDA:
+correct_middle_odd_answers = (probe_out_value.to(device) == focus_states_flipped_value[:, :-1])[:, 5:-5:2]
 accuracies_odd = einops.reduce(correct_middle_odd_answers.float(), "game move row col -> row col", "mean")
 
 correct_middle_answers = (probe_out_value.cpu() == focus_states_flipped_value[:, :-1])[:, 5:-5]
@@ -1058,13 +1059,12 @@ px.line(
     color_discrete_sequence=px.colors.qualitative.Bold,
 ).show()
 
-moves=slice(30,49)
 imshow(
-    focus_states[game, moves],
+    focus_states[game, 30:49],
     facet_col=0,
     facet_col_wrap=5,
     y=list("ABCDEFGH"),
-    facet_labels=[f"Move {i}" for i in list(range(60))[moves]],
+    facet_labels=[f"Move {i}" for i in range(30,49)],
     title=f"Moves of {game} game",
     color_continuous_scale="Greys",
     coloraxis_showscale=False,
@@ -1072,6 +1072,7 @@ imshow(
     height=1000,
 )
 '''
+TODO: The above game displayed incorrectely: moves are mixed, I see it goes (left to right, top to bottom: 38 30 31 32 33 43 ...).
 Observations: (Wrong? because wrong plot above)
 - In game 32, there are only 4 peaks in activation for the neuron 1393: 35, 37, 39, 42 board states. 
 - 35 state has C0=BLANK & D1=THIERS & E2=MINE. Playing for black. 
@@ -1141,13 +1142,12 @@ The plot above shows jagged line, with peaks at even (black) moves. Till move 56
 '''
 # %%
 game = 13
-moves=slice(40,58)
 imshow(
-    focus_states[game, moves],
+    focus_states[game, 40:58],
     facet_col=0,
     facet_col_wrap=5,
     y=list("ABCDEFGH"),
-    facet_labels=[f"Move {i}" for i in list(range(60))[moves]],
+    facet_labels=[f"Move {i}" for i in range(40,58)],
     title=f"First moves of {game} game",
     color_continuous_scale="Greys",
     coloraxis_showscale=False,
