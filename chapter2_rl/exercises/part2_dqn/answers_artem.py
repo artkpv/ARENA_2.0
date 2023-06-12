@@ -321,11 +321,13 @@ gym.envs.registry.all()
 
 #%%
 gamma = 1
+#gamma = 0.99
 seed = 0
 
-config_cliff = AgentConfig(epsilon=0.1, lr = 0.1, optimism=0)
+#config_cliff = AgentConfig(epsilon=0.1, lr = 0.1, optimism=0)
+config_cliff = AgentConfig(epsilon=0.05, lr = 0.03, optimism=0)
 env = gym.make("CliffWalking-v0")
-n_runs = 2500
+n_runs = 500
 args_cliff = (env, config_cliff, gamma, seed)
 
 returns_list = []
