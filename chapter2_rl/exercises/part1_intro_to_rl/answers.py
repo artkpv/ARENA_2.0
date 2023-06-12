@@ -310,6 +310,9 @@ for agent in [cheater, reward_averaging, reward_averaging_optimism, ucb, random]
 utils.plot_rewards(all_rewards, names, moving_avg_window=15)
 
 # %%
+# 2️⃣ Tabular RL & Policy Improvement
+
+# %%
 class Environment:
     def __init__(self, num_states: int, num_actions: int, start=0, terminal=None):
         self.num_states = num_states
@@ -347,7 +350,7 @@ class Environment:
         Outputs:
             states  : (m,) all the possible next states
             rewards : (m,) rewards for each next state transition
-            probs   : (m,) likelihood of each state-reward pair   # TODO: Not state-reward but next state given current state and action?
+            probs   : (m,) likelihood of each state-reward pair
         '''
         raise NotImplementedError
 
@@ -457,7 +460,7 @@ class Norvig(Environment):
 
     def render(self, pi: Arr):
         assert len(pi) == self.num_states
-        emoji = ["⬆️", "➡️", "⬇️", "⬅️"]
+        emoji = ["️️️⬆️", "➡️", "⬇️", "⬅️"]
         grid = [emoji[act] for act in pi]
         grid[3] = "🟩"
         grid[7] = "🟥"
@@ -491,7 +494,98 @@ def policy_eval_numerical(env: Environment, pi: Arr, gamma=0.99, eps=1e-8, max_i
     Outputs:
         value : float (num_states,) - The value function for policy pi
     '''
-    pass
-
+    delta = 0
+    value = np.zeros((env.num_states,), dtype=float)
+    for _ in range(max_iterations):
+        new_value = np.zeros((env.num_states,), dtype=float)
+        for state in range(env.num_states):
+            new_value[state] = env.T[state, pi[state]] @ (env.R[state, pi[state]] + gamma * value)
+        diff = np.max(np.abs(new_value - value))
+        delta = max(delta, diff)
+        value = new_value
+        if delta < eps:
+            break
+    return value
 
 tests.test_policy_eval(policy_eval_numerical, exact=False)
+# %%
+def policy_eval_exact(env: Environment, pi: Arr, gamma=0.99) -> Arr:
+    '''
+    Finds the exact solution to the Bellman equation.
+    '''
+    P = env.T[np.arange(env.num_states), pi.tolist()]
+    otherP = np.eye(env.num_states, env.num_states) - gamma * P
+    det = np.linalg.det(otherP)
+    #if det == 0:   # TODO: not possible. Why?
+    #    raise ValueError("Policy is not deterministic!")
+    otherPinv = np.linalg.inv(otherP)
+    R = env.R[np.arange(env.num_states), pi]
+    r = einops.einsum(P @ R.T, "i i -> i")
+    res =  otherPinv @ r
+    return res
+
+
+tests.test_policy_eval(policy_eval_exact, exact=True)
+# %%
+def policy_improvement(env: Environment, V: Arr, gamma=0.99) -> Arr:
+    '''
+    Inputs:
+        env: Environment
+        V  : (num_states,) value of each state following some policy pi
+    Outputs:
+        pi_better : vector (num_states,) of actions representing a new policy obtained via policy iteration
+    '''
+    # V - (num_states,)
+    # env.T - (num_states, num_actions, num_states)
+    # env.R - (num_states, num_actions, num_states)
+    sum_ = einops.einsum(
+        env.T,
+        env.R + gamma * V,
+        's1 a s2, s1 a s2 -> s1 a'
+    )
+    pi_better = np.argmax(sum_, axis=1)
+    return pi_better
+    
+
+
+tests.test_policy_improvement(policy_improvement)
+# %%
+def find_optimal_policy(env: Environment, gamma=0.99, max_iterations=10_000):
+    '''
+    Inputs:
+        env: environment
+    Outputs:
+        pi : (num_states,) int, of actions represeting an optimal policy
+    '''
+    pi = np.zeros(shape=env.num_states, dtype=int)
+    for _ in range(max_iterations):
+        V = policy_eval_exact(env, pi, gamma)
+        new_pi = policy_improvement(env, V, gamma)
+        if (new_pi == pi).all():
+            break
+        pi = new_pi
+    return pi
+
+
+tests.test_find_optimal_policy(find_optimal_policy)
+
+penalty = -0.04
+norvig = Norvig(penalty)
+pi_opt = find_optimal_policy(norvig, gamma=0.99)
+norvig.render(pi_opt)
+# %%
+penalty = -0.1
+norvig = Norvig(penalty)
+pi_opt = find_optimal_policy(norvig, gamma=0.99)
+norvig.render(pi_opt)
+# %%
+penalty = -0.00001
+norvig = Norvig(penalty)
+pi_opt = find_optimal_policy(norvig, gamma=0.99)
+norvig.render(pi_opt)
+# %%
+penalty = 1.0
+norvig = Norvig(penalty)
+pi_opt = find_optimal_policy(norvig, gamma=0.99)
+norvig.render(pi_opt)
+# %%
