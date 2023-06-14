@@ -577,7 +577,11 @@ def linear_schedule(
 
     It should stay at end_e for the rest of the episode.
     '''
-    pass
+    assert start_e >= end_e
+    decrease_end = exploration_fraction * total_timesteps
+    if current_step < decrease_end:
+        return (end_e - start_e) * (current_step / decrease_end) + start_e
+    return end_e
 
 
 epsilons = [
@@ -587,3 +591,23 @@ epsilons = [
 line(epsilons, labels={"x": "steps", "y": "epsilon"}, title="Probability of random action")
 
 tests.test_linear_schedule(linear_schedule)
+# %%
+def epsilon_greedy_policy(
+    envs: gym.vector.SyncVectorEnv, q_network: QNetwork, rng: Generator, obs: t.Tensor, epsilon: float
+) -> np.ndarray:
+    '''With probability epsilon, take a random action. Otherwise, take a greedy action according to the q_network.
+    Inputs:
+        envs : gym.vector.SyncVectorEnv, the family of environments to run against
+        q_network : QNetwork, the network used to approximate the Q-value function
+        obs : The current observation
+        epsilon : exploration percentage
+    Outputs:
+        actions: (n_environments, ) the sampled action for each environment.
+    '''
+    if rng.random() < epsilon:
+        return rng.integers(0, envs.single_action_space.n, size=envs.num_envs)
+    return q_network(obs).argmax(-1).detach().to(device).numpy()
+
+
+tests.test_epsilon_greedy_policy(epsilon_greedy_policy)
+# %%
