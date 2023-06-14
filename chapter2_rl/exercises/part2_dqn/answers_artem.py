@@ -920,7 +920,7 @@ class DQNLightning(pl.LightningModule):
         Y = self.args.gamma * target_max
         Y *= (dones == False).flatten().float()
         Y += rewards.flatten()
-        pred = self.q_network(observations)[range(args.batch_size), actions.flatten()]
+        pred = self.q_network(observations)[range(self.args.batch_size), actions.flatten()]
         loss = (Y - pred).pow(2).sum()
         self._log(
             pred,
@@ -928,7 +928,7 @@ class DQNLightning(pl.LightningModule):
             loss,
             infos
         )
-        if self.agent.steps % args.target_network_frequency == 0:
+        if self.agent.steps % self.args.target_network_frequency == 0:
             self.target_network.load_state_dict(self.q_network.state_dict())
 
         return loss
@@ -938,9 +938,9 @@ class DQNLightning(pl.LightningModule):
 
     def on_train_epoch_end(self):
         obs_for_probes = [[[0.0]], [[-1.0], [+1.0]], [[0.0], [1.0]], [[0.0]], [[0.0], [1.0]]]
-        expected_value_for_probes = [[[1.0]], [[-1.0], [+1.0]], [[args.gamma], [1.0]], [[-1.0, 1.0]], [[1.0, -1.0], [-1.0, 1.0]]]
+        expected_value_for_probes = [[[1.0]], [[-1.0], [+1.0]], [[self.args.gamma], [1.0]], [[-1.0, 1.0]], [[1.0, -1.0], [-1.0, 1.0]]]
         tolerances = [5e-4, 5e-4, 5e-4, 5e-4, 1e-3]
-        match = re.match(r"Probe(\d)-v0", args.env_id)
+        match = re.match(r"Probe(\d)-v0", self.args.env_id)
         if match:
             probe_idx = int(match.group(1)) - 1
             obs = t.tensor(obs_for_probes[probe_idx]).to(device)
