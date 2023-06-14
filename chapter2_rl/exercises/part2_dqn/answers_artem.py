@@ -978,7 +978,7 @@ def test_probe(probe_idx):
     trainer.fit(model=model)
 
     metrics = pd.read_csv(f"{trainer.logger.log_dir}/metrics.csv")
-    px.line(metrics, y="q_values", labels={"x": "Step"}, title="Probe 1 (if you're seeing this, then you passed the tests!)", width=600, height=400)
+    px.line(metrics, y="q_values", labels={"x": "Step"}, title=f"Probe {probe_inx} (if you're seeing this, then you passed the tests!)", width=600, height=400)
 
 test_probe(1)
 test_probe(2)
@@ -999,5 +999,44 @@ trainer = pl.Trainer(
 trainer.fit(model=model)
 
 metrics = pd.read_csv(f"{trainer.logger.log_dir}/metrics.csv")
-px.line(metrics, y="q_values", labels={"x": "Step"}, title="Probe 1 (if you're seeing this, then you passed the tests!)", width=600, height=400)
+px.line(metrics, y="q_values", labels={"x": "Step"}, title="Q-values", width=600, height=400)
+# %%
+
+# HPs from https://jfking50.github.io/mountaincar/
+args = DQNArgs(
+    exp_name = "DQN_implementation",
+    seed = 42,
+    torch_deterministic = True,
+    cuda = t.cuda.is_available(),
+    log_dir = "logs",
+    use_wandb = True,
+    wandb_project_name = "MountainCarDQN",
+    wandb_entity = None,
+    capture_video = True,
+    env_id = "MountainCar-v0",
+    total_timesteps = 50_000,
+    learning_rate = 0.001,
+    buffer_size = 64,
+    gamma = 0.95,
+    target_network_frequency = 500,
+    batch_size = 64,
+    start_e = 1.0,
+    end_e = 0.1,
+    exploration_fraction = 0.2,
+    train_frequency = 10,
+    log_frequency = 50,
+)
+
+model = DQNLightning(args).to(device)
+logger = CSVLogger(save_dir=args.log_dir, name=model.run_name)
+
+trainer = pl.Trainer(
+    max_steps=args.total_training_steps,
+    logger=logger,
+    log_every_n_steps=1,
+)
+trainer.fit(model=model)
+
+metrics = pd.read_csv(f"{trainer.logger.log_dir}/metrics.csv")
+px.line(metrics, y="q_values", labels={"x": "Step"}, title="Q-values", width=600, height=400)
 # %%
