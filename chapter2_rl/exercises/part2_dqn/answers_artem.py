@@ -349,4 +349,241 @@ line(
     title="Q-Learning vs SARSA on CliffWalking-v0",
     labels={"x": "Episode", "y": "Avg. reward", "variable": "Agent"},
 )
+# %% 2️⃣ Deep Q-Learning
+
+# %% 
+class QNetwork(nn.Module):
+    '''For consistency with your tests, please wrap your modules in a `nn.Sequential` called `layers`.'''
+    layers: nn.Sequential
+
+    def __init__(
+        self, 
+        dim_observation: int, 
+        num_actions: int, 
+        hidden_sizes: List[int] = [120, 84]
+    ):
+        super().__init__()
+        layers = [
+            nn.Linear(dim_observation, hidden_sizes[0]), 
+            nn.ReLU()
+        ]
+        for l, r in zip(hidden_sizes[0::2], hidden_sizes[1::2]):
+            layers += [
+                nn.Linear(l, r),
+                nn.ReLU()
+            ]
+        layers += [nn.Linear(hidden_sizes[-1], num_actions)]
+        self.layers = nn.Sequential(*layers)
+
+    def forward(self, x: t.Tensor) -> t.Tensor:
+        Q = self.layers(x)
+        return Q
+
+
+net = QNetwork(dim_observation=4, num_actions=2)
+n_params = sum((p.nelement() for p in net.parameters()))
+assert isinstance(getattr(net, "layers", None), nn.Sequential)
+print(net)
+print(f"Total number of parameters: {n_params}")
+print("You should manually verify network is Linear-ReLU-Linear-ReLU-Linear")
+assert n_params == 10934
 # %%
+@dataclass
+class ReplayBufferSamples:
+    '''
+    Samples from the replay buffer, converted to PyTorch for use in neural network training.
+    '''
+    observations: Float[Tensor, "sampleSize *obsShape"]
+    actions: Int[Tensor, "sampleSize"]
+    rewards: Float[Tensor, "sampleSize"]
+    dones: Bool[Tensor, "sampleSize"]
+    next_observations: Float[Tensor, "sampleSize *obsShape"]
+
+
+class ReplayBufferFAILED_IN_TIME:
+    '''
+    Contains buffer; has a method to sample from it to return a ReplayBufferSamples object.
+    '''
+    rng: Generator
+    observations: t.Tensor
+    actions: t.Tensor
+    rewards: t.Tensor
+    dones: t.Tensor
+    next_observations: t.Tensor
+
+    def __init__(self, buffer_size: int, num_environments: int, seed: int):
+        assert num_environments == 1, "This buffer only supports SyncVectorEnv with 1 environment inside."
+        self.num_environments = num_environments
+        self.buffer_size = buffer_size
+        self.start = 0
+        self.size = 0
+        self.rng = np.random.default_rng(seed)
+        self.buffer = None
+
+    def add(
+        self, obs: np.ndarray, actions: np.ndarray, rewards: np.ndarray, dones: np.ndarray, next_obs: np.ndarray
+    ) -> None:
+        '''
+        obs: shape (num_environments, *observation_shape) 
+            Observation before the action
+        actions: shape (num_environments,) 
+            Action chosen by the agent
+        rewards: shape (num_environments,) 
+            Reward after the action
+        dones: shape (num_environments,) 
+            If True, the episode ended and was reset automatically
+        next_obs: shape (num_environments, *observation_shape) 
+            Observation after the action
+            If done is True, this should be the terminal observation, NOT the first observation of the next episode.
+        '''
+        assert obs.shape[0] == self.num_environments
+        assert actions.shape == (self.num_environments,)
+        assert rewards.shape == (self.num_environments,)
+        assert dones.shape == (self.num_environments,)
+        assert next_obs.shape[0] == self.num_environments
+
+        # Determine where to insert:
+        assert self.size <= self.buffer_size
+        if self.size == self.buffer_size:
+            self.start = (self.start + 1) % self.buffer_size
+            self.size -= 1
+        inx = (self.start + self.size) % self.buffer_size
+
+        obj_list = [obs, actions, rewards, dones, next_obs]
+        if self.buffer is None:
+            self.buffer = [None for _ in range(len(obj_list))]
+
+        for i, (new_items, items) in enumerate(zip(obj_list, self.buffer)):
+            new_item = new_items[0]
+            if items is None:
+                self.buffer[i] = np.empty((self.buffer_size, *new_item.shape), dtype=new_item.dtype)
+            self.buffer[i][inx] = new_item
+        self.size += 1
+
+
+    def sample(self, sample_size: int, device: t.device) -> ReplayBufferSamples:
+        '''
+        Uniformly sample sample_size entries from the buffer and convert them to PyTorch tensors on device.
+        Sampling is with replacement, and sample_size may be larger than the buffer size.
+        Time: ~(n)
+        '''
+        sample_size = min(self.size, sample_size)
+        #if sample_size == 0:
+        #    return ReplayBufferSamples(*[t.empty(0) for _ in range(5)])
+        samples_indices = (self.rng.integers(0, self.size, size=sample_size) + self.start) % self.buffer_size
+        samples = ReplayBufferSamples(
+            *[t.as_tensor(items[samples_indices], device=device) for items in self.buffer]
+        )
+        left = (np.arange(self.size) + self.start) % self.buffer_size
+        left = left[~np.isin(left, samples_indices)]
+        for i, items in enumerate(self.buffer):
+            if len(left) == 0:
+                self.buffer[i] = None
+            else:
+                item = items[left][0]
+                self.buffer[i] = t.empty((self.buffer_size, *item.shape), dtype=item.dtype)
+                self.buffer[i][:len(items[left])] = items[left]
+        self.start = 0
+        self.size = len(left)
+        return samples
+
+class ReplayBuffer:
+    '''
+    Contains buffer; has a method to sample from it to return a ReplayBufferSamples object.
+    '''
+    rng: Generator
+    observations: t.Tensor
+    actions: t.Tensor
+    rewards: t.Tensor
+    dones: t.Tensor
+    next_observations: t.Tensor
+
+    def __init__(self, buffer_size: int, num_environments: int, seed: int):
+        assert num_environments == 1, "This buffer only supports SyncVectorEnv with 1 environment inside."
+        self.num_environments = num_environments
+        # SOLUTION
+        self.buffer_size = buffer_size
+        self.rng = np.random.default_rng(seed)
+        self.buffer = [None for _ in range(5)]
+
+    def add(
+        self, obs: np.ndarray, actions: np.ndarray, rewards: np.ndarray, dones: np.ndarray, next_obs: np.ndarray
+    ) -> None:
+        '''
+        obs: shape (num_environments, *observation_shape) 
+            Observation before the action
+        actions: shape (num_environments,) 
+            Action chosen by the agent
+        rewards: shape (num_environments,) 
+            Reward after the action
+        dones: shape (num_environments,) 
+            If True, the episode ended and was reset automatically
+        next_obs: shape (num_environments, *observation_shape) 
+            Observation after the action
+            If done is True, this should be the terminal observation, NOT the first observation of the next episode.
+        '''
+        assert obs.shape[0] == self.num_environments
+        assert actions.shape == (self.num_environments,)
+        assert rewards.shape == (self.num_environments,)
+        assert dones.shape == (self.num_environments,)
+        assert next_obs.shape[0] == self.num_environments
+
+        # SOLUTION
+        for i, (arr, arr_list) in enumerate(zip([obs, actions, rewards, dones, next_obs], self.buffer)):
+            if arr_list is None:
+                self.buffer[i] = arr
+            else:
+                self.buffer[i] = np.concatenate((arr, arr_list))
+            if self.buffer[i].shape[0] > self.buffer_size:
+                self.buffer[i] = self.buffer[i][:self.buffer_size]
+
+        self.observations, self.actions, self.rewards, self.dones, self.next_observations = [t.as_tensor(arr) for arr in self.buffer]
+
+    def sample(self, sample_size: int, device: t.device) -> ReplayBufferSamples:
+        '''
+        Uniformly sample sample_size entries from the buffer and convert them to PyTorch tensors on device.
+        Sampling is with replacement, and sample_size may be larger than the buffer size.
+        '''
+        # SOLUTION
+        indices = self.rng.integers(0, self.buffer[0].shape[0], sample_size)
+        samples = [t.as_tensor(arr_list[indices], device=device) for arr_list in self.buffer]
+        return ReplayBufferSamples(*samples)
+
+tests.test_replay_buffer_single(ReplayBuffer)
+tests.test_replay_buffer_deterministic(ReplayBuffer)
+tests.test_replay_buffer_wraparound(ReplayBuffer)
+# %%
+rb = ReplayBuffer(buffer_size=256, num_environments=1, seed=0)
+envs = gym.vector.SyncVectorEnv([make_env("CartPole-v1", 0, 0, False, "test")])
+obs = envs.reset()
+for i in range(256):
+    actions = np.array([0])
+    (next_obs, rewards, dones, infos) = envs.step(actions)
+    rb.add(obs, actions, rewards, dones, next_obs)
+    obs = next_obs
+
+
+plot_cartpole_obs_and_dones(rb.observations.flip(0), rb.dones.flip(0))
+
+sample = rb.sample(256, t.device("cpu"))
+plot_cartpole_obs_and_dones(sample.observations.flip(0), sample.dones.flip(0))
+# %%
+def linear_schedule(
+    current_step: int, start_e: float, end_e: float, exploration_fraction: float, total_timesteps: int
+) -> float:
+    '''Return the appropriate epsilon for the current step.
+
+    Epsilon should be start_e at step 0 and decrease linearly to end_e at step (exploration_fraction * total_timesteps).
+
+    It should stay at end_e for the rest of the episode.
+    '''
+    pass
+
+
+epsilons = [
+    linear_schedule(step, start_e=1.0, end_e=0.05, exploration_fraction=0.5, total_timesteps=500)
+    for step in range(500)
+]
+line(epsilons, labels={"x": "steps", "y": "epsilon"}, title="Probability of random action")
+
+tests.test_linear_schedule(linear_schedule)
