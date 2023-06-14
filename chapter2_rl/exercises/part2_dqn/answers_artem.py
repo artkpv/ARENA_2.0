@@ -605,9 +605,399 @@ def epsilon_greedy_policy(
         actions: (n_environments, ) the sampled action for each environment.
     '''
     if rng.random() < epsilon:
-        return rng.integers(0, envs.single_action_space.n, size=envs.num_envs)
+        return rng.integers(0, envs.single_action_space.n, size=(envs.num_envs,))
     return q_network(obs).argmax(-1).detach().to(device).numpy()
 
 
 tests.test_epsilon_greedy_policy(epsilon_greedy_policy)
+# %%
+ObsType = np.ndarray
+ActType = int
+
+class Probe1(gym.Env):
+    '''One action, observation of [0.0], one timestep long, +1 reward.
+
+    We expect the agent to rapidly learn that the value of the constant [0.0] observation is +1.0. Note we're using a continuous observation space for consistency with CartPole.
+    '''
+
+    action_space: Discrete
+    observation_space: Box
+
+    def __init__(self):
+        super().__init__()
+        self.observation_space = Box(np.array([0]), np.array([0]))
+        self.action_space = Discrete(1)
+        self.seed()
+        self.reset()
+
+    def step(self, action: ActType) -> Tuple[ObsType, float, bool, dict]:
+        return (np.array([0]), 1.0, True, {})
+
+    def reset(
+        self, seed: Optional[int] = None, return_info=False, options=None
+    ) -> Union[ObsType, Tuple[ObsType, dict]]:
+        super().reset(seed=seed)
+        if return_info:
+            return (np.array([0.0]), {})
+        return np.array([0.0])
+
+
+gym.envs.registration.register(id="Probe1-v0", entry_point=Probe1)
+env = gym.make("Probe1-v0")
+assert env.observation_space.shape == (1,)
+assert env.action_space.shape == ()
+
+class Probe2(gym.Env):
+    '''One action, observation of [-1.0] or [+1.0], one timestep long, reward equals observation.
+
+    We expect the agent to rapidly learn the value of each observation is equal to the observation.
+    '''
+
+    action_space: Discrete
+    observation_space: Box
+
+    def __init__(self):
+        super().__init__()
+        self.observation_space = Box(np.array([-1.0]), np.array([1.0]))
+        self.action_space = Discrete(1)
+        self.reset()
+        #self.reward = None
+
+    def step(self, action: ActType) -> Tuple[ObsType, float, bool, dict]:
+        assert self.reward is not None
+        return (np.array([self.observation]), self.reward, True, {})
+
+    def reset(
+        self, seed: Optional[int] = None, return_info=False, options=None
+    ) -> Union[ObsType, Tuple[ObsType, dict]]:
+        super().reset(seed=seed)
+        self.reward = 1.0 if  self.np_random.random() < 0.5 else -1.0
+        self.observation = self.reward
+        if return_info:
+            return (np.array([self.reward]), {})
+        return np.array([self.reward])
+
+
+gym.envs.registration.register(id="Probe2-v0", entry_point=Probe2)
+
+
+class Probe3(gym.Env):
+    '''One action, [0.0] then [1.0] observation, two timesteps, +1 reward at the end.
+
+    We expect the agent to rapidly learn the discounted value of the initial observation.
+    '''
+
+    action_space: Discrete
+    observation_space: Box
+
+    def __init__(self):
+        super().__init__()
+        self.observation_space = Box(np.array([0.0]), np.array([1.0]))
+        self.action_space = Discrete(1)
+        self.reset()
+
+    def step(self, action: ActType) -> Tuple[ObsType, float, bool, dict]:
+        self.timestep += 1
+        if self.timestep == 1:
+            return (np.array([1.0]), 0.0, False, {})
+        elif self.timestep == 2:
+            return (np.array([0.0]), 1.0, True, {})
+        raise ValueError(self.timestep)
+
+    def reset(
+        self, seed: Optional[int] = None, return_info=False, options=None
+    ) -> Union[ObsType, Tuple[ObsType, dict]]:
+        super().reset(seed=seed)
+        self.timestep = 0
+        if return_info:
+            return (np.array([0.0]), {})
+        return np.array([0.0])
+
+
+gym.envs.registration.register(id="Probe3-v0", entry_point=Probe3)
+
+
+class Probe4(gym.Env):
+    '''Two actions, [0.0] observation, one timestep, reward is -1.0 or +1.0 dependent on the action.
+
+    We expect the agent to learn to choose the +1.0 action.
+    '''
+
+    action_space: Discrete
+    observation_space: Box
+
+    def __init__(self):
+        super().__init__()
+        self.observation_space = Box(np.array([0.0]), np.array([0.0]))
+        self.action_space = Discrete(2)
+        self.reset()
+
+    def step(self, action: ActType) -> Tuple[ObsType, float, bool, dict]:
+        return (np.array([0.0]), -1.0 if action == 0 else 1.0, True, {})
+
+    def reset(
+        self, seed: Optional[int] = None, return_info=False, options=None
+    ) -> Union[ObsType, Tuple[ObsType, dict]]:
+        super().reset(seed=seed)
+        if return_info:
+            return (np.array([0.0]), {})
+        return np.array([0.0])
+
+
+gym.envs.registration.register(id="Probe4-v0", entry_point=Probe4)
+
+
+class Probe5(gym.Env):
+    '''Two actions, random 0/1 observation, one timestep, reward is 1 if action equals observation otherwise -1.
+
+    We expect the agent to learn to match its action to the observation.
+    '''
+
+    action_space: Discrete
+    observation_space: Box
+
+    def __init__(self):
+        super().__init__()
+        self.observation_space = Box(np.array([-1.0]), np.array([+1.0]))
+        self.action_space = Discrete(2)
+        self.reset()
+
+    def step(self, action: ActType) -> Tuple[ObsType, float, bool, dict]:
+        assert self.obs is not None
+        reward = 1.0 if self.obs == action else -1.0
+        return (self.obs, reward, True, {})
+
+    def reset(
+        self, seed: Optional[int] = None, return_info=False, options=None
+    ) -> Union[ObsType, Tuple[ObsType, dict]]:
+        super().reset(seed=seed)
+        self.obs = 0.0 if self.np_random.random() < 0.5 else 1.0
+        if return_info:
+            return (np.array([self.obs]), {})
+        return np.array([self.obs])
+
+
+gym.envs.registration.register(id="Probe5-v0", entry_point=Probe5)
+# %% Main DQN Algorithm
+# %%
+@dataclass
+class DQNArgs:
+    exp_name: str = "DQN_implementation"
+    seed: int = 1
+    torch_deterministic: bool = True
+    cuda: bool = t.cuda.is_available()
+    log_dir: str = "logs"
+    use_wandb: bool = True
+    wandb_project_name: str = "CartPoleDQN"
+    wandb_entity: Optional[str] = None
+    capture_video: bool = True
+    env_id: str = "CartPole-v1"
+    total_timesteps: int = 500_000
+    learning_rate: float = 0.00025
+    buffer_size: int = 10_000
+    gamma: float = 0.99
+    target_network_frequency: int = 500
+    batch_size: int = 128
+    start_e: float = 1.0
+    end_e: float = 0.1
+    exploration_fraction: float = 0.2
+    train_frequency: int = 10
+    log_frequency: int = 50
+
+    def __post_init__(self):
+        assert self.total_timesteps - self.buffer_size >= self.train_frequency
+        self.total_training_steps = (self.total_timesteps - self.buffer_size) // self.train_frequency
+
+
+#args = DQNArgs(batch_size=256)
+#utils.arg_help(args)
+# %%
+class DQNAgent:
+    '''Base Agent class handling the interaction with the environment.'''
+
+    def __init__(
+        self, 
+        envs: gym.vector.SyncVectorEnv, 
+        args: DQNArgs, 
+        rb: ReplayBuffer,
+        q_network: QNetwork,
+        target_network: QNetwork,
+        rng: np.random.Generator
+    ):
+        self.envs = envs
+        self.args = args
+        self.rb = rb
+        self.next_obs = self.envs.reset() # Need a starting observation!
+        self.steps = 0
+        self.epsilon = args.start_e
+        self.q_network = q_network
+        self.target_network = target_network
+        self.rng = rng
+
+    def play_step(self) -> List[dict]:
+        '''
+        Carries out a single interaction step between the agent and the environment, and adds results to the replay buffer.
+
+        Returns `infos` (list of dictionaries containing info we will log).
+        '''
+        actions = self.get_actions(self.next_obs)
+        obs, rewards, dones, infos  = self.envs.step(actions)
+        self.rb.add(self.next_obs, actions, rewards,  dones, obs)
+        self.steps += 1
+        self.next_obs = obs
+        return infos
+
+    def get_actions(self, obs: np.ndarray) -> np.ndarray:
+        '''
+        Samples actions according to the epsilon-greedy policy using the linear schedule for epsilon.
+        '''
+        self.epsilon = linear_schedule(
+            self.steps, 
+            self.args.start_e, 
+            self.args.end_e, 
+            self.args.exploration_fraction, 
+            self.args.total_timesteps
+        )
+        actions = epsilon_greedy_policy(
+            self.envs,
+            self.q_network,
+            self.rng,
+            t.tensor(obs).to(device),
+            self.epsilon
+        )
+        assert actions.shape == (len(self.envs.envs),)
+        return actions
+
+tests.test_agent(DQNAgent)
+
+# %%
+class DQNLightning(pl.LightningModule):
+    q_network: QNetwork
+    target_network: QNetwork
+    rb: ReplayBuffer
+    agent: DQNAgent
+
+    def __init__(self, args: DQNArgs):
+        super().__init__()
+        self.args = args
+        self.run_name = f"{args.env_id}__{args.exp_name}__{args.seed}__{int(time.time())}"
+        self.envs = gym.vector.SyncVectorEnv([make_env(args.env_id, args.seed, 0, args.capture_video, self.run_name)])
+        self.start_time = time.time()
+        self.rng = np.random.default_rng(args.seed)
+
+        num_actions = self.envs.single_action_space.n
+        obs_shape = self.envs.single_observation_space.shape
+        num_observations = np.array(obs_shape, dtype=int).prod()
+
+        self.q_network = QNetwork(num_observations, num_actions)
+        self.target_network = QNetwork(num_observations, num_actions)
+        self.target_network.load_state_dict(self.q_network.state_dict())
+        self.rb = ReplayBuffer(self.args.buffer_size, len(self.envs.envs), self.args.seed)
+        self.agent = DQNAgent(self.envs, self.args, self.rb, self.q_network, self.target_network, self.rng)
+
+        for _ in range(self.args.buffer_size):
+            self.agent.play_step()
+
+    def _log(self, predicted_q_vals: t.Tensor, epsilon: float, loss: Float[Tensor, ""], infos: List[dict]) -> None:
+        log_dict = {"td_loss": loss, "q_values": predicted_q_vals.mean().item(), "SPS": int(self.agent.steps / (time.time() - self.start_time))}
+        for info in infos:
+            if "episode" in info.keys():
+                log_dict.update({"episodic_return": info["episode"]["r"], "episodic_length": info["episode"]["l"], "epsilon": epsilon})
+        self.log_dict(log_dict)
+
+    def training_step(self, batch: Any) -> Float[Tensor, ""]:
+        infos = []
+        for _ in range(self.args.train_frequency):
+            infos += self.agent.play_step()
+        B = self.rb.sample(self.args.batch_size, device)
+        observations, actions, rewards, dones, next_observations = (
+            B.observations, B.actions, B.rewards, B.dones, B.next_observations
+        )
+        with t.inference_mode():
+            self.target_network.requires_grad_(False)
+            target_max = self.target_network(next_observations).max(dim=-1).values
+
+        Y = self.args.gamma * target_max
+        Y *= (dones == False).flatten().float()
+        Y += rewards.flatten()
+        pred = self.q_network(observations)[range(args.batch_size), actions.flatten()]
+        loss = (Y - pred).pow(2).sum()
+        self._log(
+            pred,
+            self.agent.epsilon,
+            loss,
+            infos
+        )
+        if self.agent.steps % args.target_network_frequency == 0:
+            self.target_network.load_state_dict(self.q_network.state_dict())
+
+        return loss
+
+    def configure_optimizers(self):
+        return t.optim.Adam(self.q_network.parameters(), self.args.learning_rate)
+
+    def on_train_epoch_end(self):
+        obs_for_probes = [[[0.0]], [[-1.0], [+1.0]], [[0.0], [1.0]], [[0.0]], [[0.0], [1.0]]]
+        expected_value_for_probes = [[[1.0]], [[-1.0], [+1.0]], [[args.gamma], [1.0]], [[-1.0, 1.0]], [[1.0, -1.0], [-1.0, 1.0]]]
+        tolerances = [5e-4, 5e-4, 5e-4, 5e-4, 1e-3]
+        match = re.match(r"Probe(\d)-v0", args.env_id)
+        if match:
+            probe_idx = int(match.group(1)) - 1
+            obs = t.tensor(obs_for_probes[probe_idx]).to(device)
+            value = self.q_network(obs)
+            print("Value: ", value)
+            expected_value = t.tensor(expected_value_for_probes[probe_idx]).to(device)
+            t.testing.assert_close(value, expected_value, atol=tolerances[probe_idx], rtol=0)
+            print("Probe tests passed!")
+        self.envs.close()
+
+    def train_dataloader(self):
+        '''We don't use a trainloader in the traditional sense, so we'll just have this.'''
+        return range(self.args.total_training_steps)
+
+# %%
+def test_probe(probe_idx):
+    args = DQNArgs(
+        env_id=f"Probe{probe_idx}-v0",
+        exp_name=f"test-probe-{probe_idx}", 
+        total_timesteps=3000,
+        learning_rate=0.001,
+        buffer_size=500,
+        capture_video=False,
+        use_wandb=False
+    )
+    utils.arg_help(args)
+    model = DQNLightning(args).to(device)
+    logger = CSVLogger(save_dir=args.log_dir, name=model.run_name)
+
+    trainer = pl.Trainer(
+        max_steps=args.total_training_steps,
+        logger=logger,
+        log_every_n_steps=1,
+    )
+    trainer.fit(model=model)
+
+    metrics = pd.read_csv(f"{trainer.logger.log_dir}/metrics.csv")
+    px.line(metrics, y="q_values", labels={"x": "Step"}, title="Probe 1 (if you're seeing this, then you passed the tests!)", width=600, height=400)
+
+test_probe(1)
+test_probe(2)
+test_probe(3)
+test_probe(4)
+test_probe(5)
+
+# %%
+args = DQNArgs()
+model = DQNLightning(args).to(device)
+logger = CSVLogger(save_dir=args.log_dir, name=model.run_name)
+
+trainer = pl.Trainer(
+    max_steps=args.total_training_steps,
+    logger=logger,
+    log_every_n_steps=1,
+)
+trainer.fit(model=model)
+
+metrics = pd.read_csv(f"{trainer.logger.log_dir}/metrics.csv")
+px.line(metrics, y="q_values", labels={"x": "Step"}, title="Probe 1 (if you're seeing this, then you passed the tests!)", width=600, height=400)
 # %%
