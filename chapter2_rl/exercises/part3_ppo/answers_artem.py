@@ -476,7 +476,8 @@ class PPOTrainer:
 
     def rollout_phase(self):
         '''Should populate the replay buffer with new experiences.'''
-        for step in tqdm(range(args.num_steps)):
+        #for step in tqdm(range(args.num_steps)):
+        for step in range(args.num_steps):
             self.agent.play_step()  # TODO. It should return dict?
             
     def learning_phase(self) -> None:
@@ -543,12 +544,17 @@ def test_probe(probe_idx: int):
     if expected_probs is not None:
         t.testing.assert_close(probs, t.tensor(expected_probs).to(device), atol=tolerances[probe_idx-1], rtol=0)
     clear_output()
-    print("Probe tests passed!")
+    print(f"Probe {probe_idx} tests passed!")
 
 
+#%%
 test_probe(1)
+#%%
 test_probe(2)
+#%%
 test_probe(4)
+#%%
 test_probe(5)
+#%%
 test_probe(3)
 # %%
