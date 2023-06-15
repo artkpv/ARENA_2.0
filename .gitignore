@@ -14,5 +14,5 @@ secrets.toml
 serimats_app
 *othello_world*
 *Grokking
-chapter2_rl/exercises/part2_dqn/videos/*
 chapter2_rl/exercises/part2_dqn/videos
+chapter2_rl/exercises/part3_ppo/videos
