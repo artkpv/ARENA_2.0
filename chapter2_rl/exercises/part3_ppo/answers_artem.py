@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import List, Tuple, Dict, Any, Union, Callable, Optional
 from jaxtyping import Float, Int, Bool
 import wandb
+wandb.login()
 from IPython.display import clear_output
 
 # Make sure exercises are in the path
@@ -339,7 +340,7 @@ class PPOAgent(nn.Module):
             obs, 
             actions, 
             rewards, 
-            dones, 
+            self.next_done, 
             log_probs, 
             values
         )
@@ -484,10 +485,11 @@ class PPOTrainer:
                 if "episode" in info.keys():
                     last_episode_len = info["episode"]["l"]
                     last_episode_return = info["episode"]["r"]
-                    if args.use_wandb: wandb.log({
-                        "episode_length": last_episode_len,
-                        "episode_return": last_episode_return,
-                    }, step=self.agent.steps)
+                    if args.use_wandb: 
+                        wandb.log({
+                            "episode_length": last_episode_len,
+                            "episode_return": last_episode_return,
+                        }, step=self.agent.steps)
             
     def learning_phase(self) -> None:
         '''Should get minibatches and iterate through them (performing an optimizer step at each one).'''
@@ -512,11 +514,8 @@ class PPOTrainer:
                 #eps=
             ) 
         entropy_bonus = calc_entropy_bonus(distribution, self.args.ent_coef)
-        objective = (
-            cso
-            - calc_value_function_loss(values, mb.returns, self.args.vf_coef)
-            + entropy_bonus
-        )
+        values_loss = calc_value_function_loss(values, mb.returns, self.args.vf_coef)
+        objective = ( cso - values_loss + entropy_bonus)
         with t.inference_mode():
             newlogprob = distribution.log_prob(mb.actions)
             logratio = newlogprob - mb.logprobs
@@ -528,7 +527,7 @@ class PPOTrainer:
                 total_steps = self.agent.steps,
                 values = values.mean().item(),
                 learning_rate = self.scheduler.optimizer.param_groups[0]["lr"],
-                value_loss = values.item(),
+                value_loss = values_loss,
                 clipped_surrogate_objective = cso.item(),
                 entropy = entropy_bonus.item(),
                 approx_kl = approx_kl,
@@ -537,13 +536,16 @@ class PPOTrainer:
         return objective
 
 # %%
-def train(args):
+def train(args : PPOArgs):
+    if args.use_wandb:
+        wandb.init()
     trainer = PPOTrainer(args)
     agent = trainer.agent
     # initialise PPOArgs and PPOTrainer objects
     for epoch in range(args.total_epochs):
         trainer.rollout_phase()        
         trainer.learning_phase()
+    return agent
 
 # %%
 def test_probe(probe_idx: int):
@@ -559,7 +561,7 @@ def test_probe(probe_idx: int):
     )
 
     # YOUR CODE HERE - create a PPOTrainer instance, and train your agent
-    train(args)
+    agent = train(args)
 
     # Check that our final results were the ones we expected from this probe
     obs_for_probes = [[[0.0]], [[-1.0], [+1.0]], [[0.0], [1.0]], [[0.0]], [[0.0], [1.0]]]
@@ -590,21 +592,18 @@ test_probe(4)
 #%%
 test_probe(5)
 # %%
+args = PPOArgs(use_wandb=False)
+agent = train(args)
 
+# %%
 
 from gym.envs.classic_control.cartpole import CartPoleEnv
 
 class EasyCart(CartPoleEnv):
 	def step(self, action):
 		(obs, rew, done, info) = super().step(action)
-		x, v, theta, omega = obs
 
-		# First reward: angle should be close to zero
-		reward_1 = 1 - abs(theta / 0.2095)
-		# Second reward: position should be close to the center
-		reward_2 = 1 - abs(x / 2.4)
-
-		return (obs, reward_2, done, info)
+		return (obs, new_reward, done, info)
 
 if MAIN:
 	gym.envs.registration.register(id="EasyCart-v0", entry_point=EasyCart, max_episode_steps=500)
