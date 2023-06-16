@@ -346,6 +346,7 @@ class PPOAgent(nn.Module):
         self.steps += self.num_envs
         self.next_obs = next_obs
         self.next_done = dones
+        return infos
 
     def get_minibatches(self) -> None:
         '''
@@ -478,7 +479,15 @@ class PPOTrainer:
         '''Should populate the replay buffer with new experiences.'''
         #for step in tqdm(range(args.num_steps)):
         for step in range(args.num_steps):
-            self.agent.play_step()  # TODO. It should return dict?
+            infos = self.agent.play_step()
+            for info in infos:
+                if "episode" in info.keys():
+                    last_episode_len = info["episode"]["l"]
+                    last_episode_return = info["episode"]["r"]
+                    if args.use_wandb: wandb.log({
+                        "episode_length": last_episode_len,
+                        "episode_return": last_episode_return,
+                    }, step=self.agent.steps)
             
     def learning_phase(self) -> None:
         '''Should get minibatches and iterate through them (performing an optimizer step at each one).'''
@@ -494,8 +503,7 @@ class PPOTrainer:
         actions_logits = self.agent.actor(mb.obs)
         distribution = Categorical(logits=actions_logits)
         values = self.agent.critic(mb.obs).squeeze()
-        return (
-            calc_clipped_surrogate_objective(
+        cso = calc_clipped_surrogate_objective(
                 distribution, 
                 mb.actions, 
                 mb.advantages, 
@@ -503,10 +511,39 @@ class PPOTrainer:
                 self.args.clip_coef
                 #eps=
             ) 
+        entropy_bonus = calc_entropy_bonus(distribution, self.args.ent_coef)
+        objective = (
+            cso
             - calc_value_function_loss(values, mb.returns, self.args.vf_coef)
-            + calc_entropy_bonus(distribution, self.args.ent_coef)
+            + entropy_bonus
         )
+        with t.inference_mode():
+            newlogprob = distribution.log_prob(mb.actions)
+            logratio = newlogprob - mb.logprobs
+            ratio = logratio.exp()
+            approx_kl = (ratio - 1 - logratio).mean().item()
+            clipfracs = [((ratio - 1.0).abs() > self.args.clip_coef).float().mean().item()]
+        if args.use_wandb: 
+            wandb.log(dict(
+                total_steps = self.agent.steps,
+                values = values.mean().item(),
+                learning_rate = self.scheduler.optimizer.param_groups[0]["lr"],
+                value_loss = values.item(),
+                clipped_surrogate_objective = cso.item(),
+                entropy = entropy_bonus.item(),
+                approx_kl = approx_kl,
+                clipfrac = np.mean(clipfracs)
+            ), step=self.agent.steps)
+        return objective
 
+# %%
+def train(args):
+    trainer = PPOTrainer(args)
+    agent = trainer.agent
+    # initialise PPOArgs and PPOTrainer objects
+    for epoch in range(args.total_epochs):
+        trainer.rollout_phase()        
+        trainer.learning_phase()
 
 # %%
 def test_probe(probe_idx: int):
@@ -522,12 +559,7 @@ def test_probe(probe_idx: int):
     )
 
     # YOUR CODE HERE - create a PPOTrainer instance, and train your agent
-    trainer = PPOTrainer(args)
-    agent = trainer.agent
-    # initialise PPOArgs and PPOTrainer objects
-    for epoch in range(args.total_epochs):
-        trainer.rollout_phase()
-        trainer.learning_phase()
+    train(args)
 
     # Check that our final results were the ones we expected from this probe
     obs_for_probes = [[[0.0]], [[-1.0], [+1.0]], [[0.0], [1.0]], [[0.0]], [[0.0], [1.0]]]
@@ -546,6 +578,8 @@ def test_probe(probe_idx: int):
     clear_output()
     print(f"Probe {probe_idx} tests passed!")
 
+#%%
+test_probe(3)
 
 #%%
 test_probe(1)
@@ -555,6 +589,27 @@ test_probe(2)
 test_probe(4)
 #%%
 test_probe(5)
-#%%
-test_probe(3)
+# %%
+
+
+from gym.envs.classic_control.cartpole import CartPoleEnv
+
+class EasyCart(CartPoleEnv):
+	def step(self, action):
+		(obs, rew, done, info) = super().step(action)
+		x, v, theta, omega = obs
+
+		# First reward: angle should be close to zero
+		reward_1 = 1 - abs(theta / 0.2095)
+		# Second reward: position should be close to the center
+		reward_2 = 1 - abs(x / 2.4)
+
+		return (obs, reward_2, done, info)
+
+if MAIN:
+	gym.envs.registration.register(id="EasyCart-v0", entry_point=EasyCart, max_episode_steps=500)
+
+	args = PPOArgs(env_id="EasyCart-v0", use_wandb=True)
+	agent = train(args)
+
 # %%
