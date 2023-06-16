@@ -600,15 +600,24 @@ agent = train(args)
 from gym.envs.classic_control.cartpole import CartPoleEnv
 
 class EasyCart(CartPoleEnv):
-	def step(self, action):
-		(obs, rew, done, info) = super().step(action)
+    def step(self, action):
+        (obs, rew, done, info) = super().step(action)
 
-		return (obs, new_reward, done, info)
+        # Rotating:
+        #new_reward = obs[3]
+        #done = not (-2.4 <= obs[0] <= 2.4)
+
+        x, v, theta, omega = obs
+        # First reward: angle should be close to zero
+        reward_1 = 1 - abs(theta / 0.2095)
+        # Second reward: position should be close to the center
+        #reward_2 = 1 - abs(x / 2.4)
+        return (obs, reward_1, done, info)
 
 if MAIN:
-	gym.envs.registration.register(id="EasyCart-v0", entry_point=EasyCart, max_episode_steps=500)
+    gym.envs.registration.register(id="EasyCart-v0", entry_point=EasyCart, max_episode_steps=500)
 
-	args = PPOArgs(env_id="EasyCart-v0", use_wandb=True)
-	agent = train(args)
+    args = PPOArgs(env_id="EasyCart-v0", use_wandb=False)
+    agent = train(args)
 
 # %%
