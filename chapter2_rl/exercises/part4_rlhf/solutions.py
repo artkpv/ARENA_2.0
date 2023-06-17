@@ -18,9 +18,9 @@ section_dir = exercises_dir / "part4_rlhf"
 if str(exercises_dir) not in sys.path: sys.path.append(str(exercises_dir))
 
 import part4_rlhf.tests as tests
-from part4_rlhf.trlx.trlx.data.default_configs import TRLConfig, TrainConfig, OptimizerConfig, SchedulerConfig, TokenizerConfig, ModelConfig
-from part4_rlhf.trlx.trlx.models.modeling_ppo import PPOConfig
-from part4_rlhf.trlx.trlx import train
+from trlx.data.default_configs import TRLConfig, TrainConfig, OptimizerConfig, SchedulerConfig, TokenizerConfig, ModelConfig
+from trlx.models.modeling_ppo import PPOConfig
+from trlx import train
 
 MAIN = __name__ == "__main__"
 

@@ -41,6 +41,7 @@ pytorch-lightning = "*"
 openai = "*"
 transformer-lens = "*"
 gym = "==0.23.1"
+trlx = {editable = true, git = "https://github.com/CarperAI/trlx"}
 
 [dev-packages]
 
