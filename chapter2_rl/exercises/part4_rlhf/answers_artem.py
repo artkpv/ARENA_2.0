@@ -59,7 +59,7 @@ predictions = predict(bert, tokenizer, your_text)
 print("Model predicted: \n", "\n".join(map(str, predictions)))
 
 # %%
-your_text = "Mary and John walks into a store. Mary ask [MASK] to buy a yogurt."
+your_text = "Mary and John walk into a store. Mary ask [MASK] to buy a yogurt."
 predictions = predict(bert, tokenizer, your_text)
 print("Model predicted: \n", "\n".join(map(str, predictions)))
 # %%
@@ -105,7 +105,7 @@ def generate_prompts(dataset) -> List[str]:
 prompts = generate_prompts(imdb)
 pprint(prompts[:3])
 # %%
-def generate_completion(prompt) -> str:
+def generate_completion(prompt, checkpoint=None) -> str:
     '''
     Loads the GPT2-IMDB tokenizer and model, and generates completions for the given prompt (in the form of a string).
 
@@ -115,7 +115,7 @@ def generate_completion(prompt) -> str:
     '''
     
     tokenizer = AutoTokenizer.from_pretrained("lvwerra/gpt2-imdb")
-    model = AutoModelForCausalLM.from_pretrained("lvwerra/gpt2-imdb")
+    model = AutoModelForCausalLM.from_pretrained(checkpoint or "lvwerra/gpt2-imdb")
     inputs = tokenizer(prompt, return_tensors='pt')
     tokens_out = model.generate(**inputs, do_sample=True, top_k=5, max_new_tokens=64).squeeze(0)
     outputs = tokenizer.decode(tokens_out)
@@ -150,7 +150,6 @@ tests.test_reward_model(rewards)
 reward_model_batch_size = 128
 def create_pipeline(model_path):
 
-    # YOUR CODE HERE - Create a sentiment pipeline
     return pipeline(
         "sentiment-analysis",
         model_path,
@@ -250,6 +249,44 @@ def main() -> None:
     )
     trainer.save_pretrained(Path('./chapter2_rl/exercises/part4_rlhf/data/ppo_trained_model'))
 
+
+gc.collect()
+t.cuda.empty_cache()
+main()
+# %%
+generate_completion("I hate this movie!", checkpoint=Path('./chapter2_rl/exercises/part4_rlhf/data/ppo_trained_model'))
+'''
+Output:
+'I hate this movie! And it is a great one! It is a great one for everyone! It is a great one! It is a great one! And it is a great one! I love it! And is a great one! It isiji is wonderful and I love it! It is great and is great! It is great'
+'''
+# %%
+def main() -> None:
+    return train(
+        reward_fn = reward_model,
+        prompts = prompts,
+        eval_prompts = ['I was extremely disappointed'] * 52,
+        config =  ppo_config()
+    )
+
+gc.collect()
+t.cuda.empty_cache()
+main()
+# %%
+def get_neutral_score(scores):
+    d = dict(map(lambda x: tuple(x.values()), scores))
+    return 1 - abs(d["POSITIVE"] - d["NEGATIVE"])
+
+def neutral_reward_model(samples: List[str], **kwargs) -> List[float]:
+    reward = list(map(get_neutral_score, sentiment_fn(samples)))
+    return reward
+
+def main() -> None:
+    trainer = train(
+        reward_fn = neutral_reward_model,
+        prompts = prompts,
+        eval_prompts = ['I did NOT like this movie.'] * 64,
+        config =  ppo_config()
+    )
 
 gc.collect()
 t.cuda.empty_cache()
