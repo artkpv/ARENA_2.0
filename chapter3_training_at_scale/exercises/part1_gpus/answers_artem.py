@@ -38,3 +38,70 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 MAIN = __name__ == "__main__"
 # %%
+model = torchvision.models.resnet18(weights='IMAGENET1K_V1')
+inputs = torch.randn(5, 3, 224, 224)
+
+with profile(activities=[ProfilerActivity.CPU], record_shapes=True) as prof:
+    with record_function("model_inference"):
+        model(inputs)
+
+#print(prof.key_averages().table(sort_by="self_cpu_time_total", row_limit=10))
+print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=10))
+# %% 
+'''
+> Think about what running a model in inference mode does and the answer should 
+  present itself to you. Run the code below to compare your expectations with reality.
+
+'''
+# %%
+model = torchvision.models.resnet18(weights='IMAGENET1K_V1')
+inputs = torch.randn(5, 3, 224, 224)
+with profile(activities=[ProfilerActivity.CPU], record_shapes=True) as prof:
+    with record_function("model_inference"):
+        with torch.inference_mode():
+            model(inputs)
+
+#print(prof.key_averages().table(sort_by="self_cpu_time_total", row_limit=10))
+#print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=10))
+print(prof.key_averages(group_by_input_shape=True).table(sort_by="cpu_time_total", row_limit=10))
+
+# %% 
+
+model = torchvision.models.resnet18(weights='IMAGENET1K_V1')
+inputs = torch.randn(5, 3, 224, 224)
+
+with profile(activities=[ProfilerActivity.CPU], record_shapes=True) as prof:
+    with record_function("model_inference"):
+        model(inputs)
+
+#print(prof.key_averages().table(sort_by="self_cpu_time_total", row_limit=10))
+print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=10))
+# %%
+model = torchvision.models.resnet18(weights='IMAGENET1K_V1').cuda()
+inputs = torch.randn(5, 3, 224, 224).cuda()
+
+with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
+    with record_function("model_inference"):
+        model(inputs)
+
+print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=10))
+# %%
+inputs = torch.randn(5, 3, 224, 224).cuda()
+model = torchvision.models.resnet18(weights='IMAGENET1K_V1').cuda()
+
+with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
+    with record_function("model_inference"):
+        with torch.inference_mode():
+            model(inputs)
+print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=10))
+# %%
+model = torchvision.models.resnet18(weights='IMAGENET1K_V1').cuda()
+inputs = torch.randn(5, 3, 224, 224).cuda()
+
+with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA]) as prof:
+    model(inputs)
+
+output = prof.key_averages().table(sort_by="self_cuda_time_total", row_limit=10)
+print(output)
+prof.export_chrome_trace("trace.json")
+# %%
