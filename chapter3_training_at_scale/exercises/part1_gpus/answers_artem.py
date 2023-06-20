@@ -375,7 +375,8 @@ def main():
     )
 
     model = Net().to(device)
-    optimizer = optim.SGD(model.parameters(), lr=lr, momentum=momentum)
+    #optimizer = optim.SGD(model.parameters(), lr=lr, momentum=momentum)
+    optimizer = optim.AdamW(model.parameters(), lr=lr)
     args = {}
     args["log_interval"] = log_interval
     for epoch in range(1, epochs + 1):
@@ -401,4 +402,176 @@ test_loader = torch.utils.data.DataLoader(
     batch_size=64, shuffle=True)
 
 test(model, test_loader)
+# %%
+QTensor = namedtuple('QTensor', ['tensor', 'scale', 'zero_point'])
+
+def quantize_tensor(x, min_val=None, max_val=None, num_bits=8) -> QTensor:
+    '''
+    Calculate the scale and zero-point of the input tensor for quantization.
+    '''
+    qmin = 0.
+    qmax = 2.**(num_bits) - 1.
+    if min_val is None:
+        min_val = x.min() # torch.finfo(x.dtype).min
+    if max_val is None:
+        max_val = x.max() #  torch.finfo(x.dtype).max
+    scale = (max_val - min_val) / (qmax - qmin)
+    zero_point = min(qmax, max(qmin, qmin - min_val / scale))
+    zero_point = int(zero_point)
+    return QTensor(
+        tensor=(x / scale + zero_point).clamp(qmin, qmax).round().byte(),
+        scale=scale,
+        zero_point=zero_point
+    )
+
+
+tests.test_quantize_tensor(quantize_tensor)
+# %%
+def dequantize_tensor(q_x) -> torch.tensor:
+    '''
+    Dequantize the input QTensor to obtain the float Tensor.
+    '''
+    q = q_x.tensor.float()
+    scale = q_x.scale
+    zp = q_x.zero_point
+    return scale * (q - zp)
+
+
+tests.test_dequantize_tensor(dequantize_tensor)
+# %%
+torch.finfo(torch.tensor(1.0).dtype)
+# %%
+def calcScaleZeroPoint(min_val, max_val, num_bits=8) -> Tuple[float, float]:
+    '''
+    Calculate scale and zero point of
+    '''
+    qmin = 0.
+    qmax = 2.**(num_bits) - 1.
+    scale = (max_val - min_val) / (qmax - qmin)
+    zero_point = min(qmax, max(qmin, qmin - min_val / scale))
+    zero_point = int(zero_point)
+    return (scale, zero_point)
+
+# %%
+# Get Min and max of x tensor, and stores it
+def updateStats(x, stats, key) -> Dict[Dict, Dict[str, int]]:
+    max_val, _ = torch.max(x, dim=1)
+    min_val, _ = torch.min(x, dim=1)
+
+
+    if key not in stats:
+        stats[key] = {"max": max_val.sum().item(), "min": min_val.sum().item(), "total": 1}
+    else:
+        stats[key]['max'] += max_val.sum().item()
+        stats[key]['min'] += min_val.sum().item()
+        stats[key]['total'] += 1
+
+    return stats
+
+# Reworked Forward Pass to access activation Stats through updateStats function
+def gatherActivationStats(model, x, stats):
+    stats = updateStats(x.clone().view(x.shape[0], -1), stats, 'conv1')
+    x = F.relu(model.conv1(x))
+    x = F.max_pool2d(x, 2, 2)
+    stats = updateStats(x.clone().view(x.shape[0], -1), stats, 'conv2')
+    x = F.relu(model.conv2(x))
+    x = F.max_pool2d(x, 2, 2)
+    x = x.view(-1, 4*4*50)
+    stats = updateStats(x, stats, 'fc1')
+    x = F.relu(model.fc1(x))
+    stats = updateStats(x, stats, 'fc2')
+    x = model.fc2(x)
+    return stats
+
+# Entry function to get stats of all functions.
+def gatherStats(model, test_loader):
+    device = 'cuda'
+
+    model.eval()
+    test_loss = 0
+    correct = 0
+    stats = {}
+    with torch.no_grad():
+        for data, target in test_loader:
+            data, target = data.to(device), target.to(device)
+            stats = gatherActivationStats(model, data, stats)
+
+    final_stats = {}
+    for key, value in stats.items():
+      final_stats[key] = { "max" : value["max"] / value["total"], "min" : value["min"] / value["total"] }
+    return final_stats
+
+# %%
+q_model = copy.deepcopy(model)
+stats = gatherStats(q_model, test_loader)
+stats
+# %%
+def quantizeLayer(x, layer, stat, scale_x, zp_x) -> Tuple[torch.tensor, float, float]:
+    '''
+    Should work for both conv and linear layers.
+    '''
+    old_weight = layer.weight
+    old_bias = layer.bias
+    x -= zp_x 
+    scale, zp = calcScaleZeroPoint((old_weight + old_bias).min().item(), (old_weight + old_bias).max().item())
+    layer.weight = quantize_tensor(old_weight)
+    layer.bias = quantize_tensor(old_weight)
+    y = layer(x)
+    y = torch.relu(y)
+    layer.weight = old_weight
+    layer.bias = old_bias
+    return (y, scale, zp)
+
+# %%
+def quantForward(model, x, stats):
+    '''
+    Quantise before inputting into incoming layers
+    '''
+    x = quantize_tensor(x, min_val = stats['conv1']['min'], max_val = stats['conv1']['max'])
+
+    x, scale_next, zero_point_next = quantizeLayer(x.tensor, model.conv1, stats['conv2'], x.scale, x.zero_point)
+
+    x = F.max_pool2d(x, 2, 2)
+
+    x, scale_next, zero_point_next = quantizeLayer(x, model.conv2, stats['fc1'], scale_next, zero_point_next)
+
+    x = F.max_pool2d(x, 2, 2)
+
+    x = x.view(-1, 4*4*50)
+
+    x, scale_next, zero_point_next = quantizeLayer(x, model.fc1, stats['fc2'], scale_next, zero_point_next)
+
+    # Back to dequant for final layer
+    x = dequantize_tensor(QTensor(tensor=x, scale=scale_next, zero_point=zero_point_next))
+
+    x = model.fc2(x)
+
+    return F.log_softmax(x, dim=1)
+
+# %%
+def testQuant(model, test_loader, device='cuda', quant=False, stats=None):
+
+    model = model.to(device)
+    model.eval()
+    test_loss = 0
+    correct = 0
+    with torch.no_grad():
+        for data, target in test_loader:
+            data, target = data.to(device), target.to(device)
+            if quant:
+              output = quantForward(model, data, stats)
+            else:
+              output = model(data)
+            test_loss += F.nll_loss(output, target, reduction='sum').item() # sum up batch loss
+            pred = output.argmax(dim=1, keepdim=True) #bm get the index of the max log-probability
+            correct += pred.eq(target.view_as(pred)).sum().item()
+
+    test_loss /= len(test_loader.dataset)
+
+    print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
+        test_loss, correct, len(test_loader.dataset),
+        100. * correct / len(test_loader.dataset)))
+
+
+testQuant(model, test_loader=test_loader, quant=True, stats=stats)
 # %%
