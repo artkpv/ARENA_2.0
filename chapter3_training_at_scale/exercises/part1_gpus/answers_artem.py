@@ -375,8 +375,8 @@ def main():
     )
 
     model = Net().to(device)
-    #optimizer = optim.SGD(model.parameters(), lr=lr, momentum=momentum)
-    optimizer = optim.AdamW(model.parameters(), lr=lr)
+    optimizer = optim.SGD(model.parameters(), lr=lr, momentum=momentum)
+    #optimizer = optim.AdamW(model.parameters(), lr=lr)  # Worse than just SGD?! Why?
     args = {}
     args["log_interval"] = log_interval
     for epoch in range(1, epochs + 1):
@@ -457,15 +457,12 @@ def calcScaleZeroPoint(min_val, max_val, num_bits=8) -> Tuple[float, float]:
 def updateStats(x, stats, key) -> Dict[Dict, Dict[str, int]]:
     max_val, _ = torch.max(x, dim=1)
     min_val, _ = torch.min(x, dim=1)
-
-
     if key not in stats:
         stats[key] = {"max": max_val.sum().item(), "min": min_val.sum().item(), "total": 1}
     else:
         stats[key]['max'] += max_val.sum().item()
         stats[key]['min'] += min_val.sum().item()
         stats[key]['total'] += 1
-
     return stats
 
 # Reworked Forward Pass to access activation Stats through updateStats function
@@ -486,7 +483,6 @@ def gatherActivationStats(model, x, stats):
 # Entry function to get stats of all functions.
 def gatherStats(model, test_loader):
     device = 'cuda'
-
     model.eval()
     test_loss = 0
     correct = 0
@@ -495,7 +491,6 @@ def gatherStats(model, test_loader):
         for data, target in test_loader:
             data, target = data.to(device), target.to(device)
             stats = gatherActivationStats(model, data, stats)
-
     final_stats = {}
     for key, value in stats.items():
       final_stats[key] = { "max" : value["max"] / value["total"], "min" : value["min"] / value["total"] }
@@ -510,18 +505,24 @@ def quantizeLayer(x, layer, stat, scale_x, zp_x) -> Tuple[torch.tensor, float, f
     '''
     Should work for both conv and linear layers.
     '''
-    old_weight = layer.weight.data
-    old_bias = layer.bias.data
-    scale, zp = calcScaleZeroPoint((old_weight + old_bias).min().item(), (old_weight + old_bias).max().item())
-    layer.weight.data = quantize_tensor(old_weight).tensor
-    layer.bias.data = quantize_tensor(old_weight).tensor
+    old_w = layer.weight.data
+    old_b = layer.bias.data
 
-    x -= zp_x 
-    y = layer(x)
-    y = torch.relu(y)
-    layer.weight.data = old_weight
-    layer.bias.data = old_bias
-    return (y, scale, zp)
+    w_q = quantize_tensor(old_w)
+    b_q = quantize_tensor(old_b)
+
+    next_scale, next_zp = calcScaleZeroPoint(min_val=stat['min'], max_val=stat['max'])
+
+    layer.weight.data = (scale_x * w_q.scale) / next_scale * (w_q.tensor.float() - w_q.zero_point)
+    layer.bias.data = (b_q.scale / next_scale)  * (b_q.tensor.float() + b_q.zero_point)
+
+    x = x.float() - zp_x
+    y = layer(x) + next_zp
+    y = F.relu(y)
+    layer.weight.data = old_w
+    layer.bias.data = old_b
+
+    return (y, next_scale, next_zp)
 
 # %%
 def quantForward(model, x, stats):
@@ -575,4 +576,44 @@ def testQuant(model, test_loader, device='cuda', quant=False, stats=None):
 
 
 testQuant(model, test_loader=test_loader, quant=True, stats=stats)
+# %%
+num_threads = 1 # Change to see different benchmarking results
+print(f'Benchmarking on {num_threads} threads')
+
+t0 = benchmark.Timer(
+    stmt='test(model, test_loader, device="cpu")',
+    setup='from __main__ import test, model, test_loader',
+    num_threads=num_threads,
+    label='Vanilla model')
+
+t1 = benchmark.Timer(
+    stmt='testQuant(q_model, test_loader, quant=True, stats=stats, device="cpu")',
+    setup='from __main__ import testQuant, q_model, test_loader, stats',
+    num_threads=num_threads,
+    label='INT8 Quantized model')
+
+
+print(t0.timeit(5))
+print(t1.timeit(5))
+"""
+num_threads=10, device="cuda":
+    Vanilla model
+    setup: from __main__ import test, model, test_loader
+    1.23 s
+    1 measurement, 5 runs , 10 threads
+    INT8 Quantized model
+    setup: from __main__ import testQuant, q_model, test_loader, stats
+    1.44 s
+    1 measurement, 5 runs , 10 threads
+num_threads=1, device="cpu":
+    Vanilla model
+    setup: from __main__ import test, model, test_loader
+    2.71 s
+    1 measurement, 5 runs , 1 thread
+
+    INT8 Quantized model
+    setup: from __main__ import testQuant, q_model, test_loader, stats
+    3.06 s
+    1 measurement, 5 runs , 1 thread
+"""
 # %%
