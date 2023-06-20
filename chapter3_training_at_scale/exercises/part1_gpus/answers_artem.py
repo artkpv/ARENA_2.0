@@ -510,16 +510,17 @@ def quantizeLayer(x, layer, stat, scale_x, zp_x) -> Tuple[torch.tensor, float, f
     '''
     Should work for both conv and linear layers.
     '''
-    old_weight = layer.weight
-    old_bias = layer.bias
-    x -= zp_x 
+    old_weight = layer.weight.data
+    old_bias = layer.bias.data
     scale, zp = calcScaleZeroPoint((old_weight + old_bias).min().item(), (old_weight + old_bias).max().item())
-    layer.weight = quantize_tensor(old_weight)
-    layer.bias = quantize_tensor(old_weight)
+    layer.weight.data = quantize_tensor(old_weight).tensor
+    layer.bias.data = quantize_tensor(old_weight).tensor
+
+    x -= zp_x 
     y = layer(x)
     y = torch.relu(y)
-    layer.weight = old_weight
-    layer.bias = old_bias
+    layer.weight.data = old_weight
+    layer.bias.data = old_bias
     return (y, scale, zp)
 
 # %%
