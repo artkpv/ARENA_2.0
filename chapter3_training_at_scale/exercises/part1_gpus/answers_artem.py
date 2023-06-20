@@ -289,7 +289,7 @@ class Net(nn.Module):
 
         return F.log_softmax(x, dim=1)
 
-def train(args, model, device, train_loader, optimizer, epoch):
+def train(args, model : Net, device, train_loader, optimizer, epoch):
     model.train()
     for batch_idx, (data, target) in enumerate(train_loader):
         data, target = data.to(device), target.to(device)
@@ -401,3 +401,4 @@ test_loader = torch.utils.data.DataLoader(
     batch_size=64, shuffle=True)
 
 test(model, test_loader)
+# %%
