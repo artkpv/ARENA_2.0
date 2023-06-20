@@ -71,10 +71,10 @@ if MAIN:
     print(summary)
 
 # %%
-
-x = t.rand((1, 1, 28, 28)).to(device)
-model(x)
-print([x.device for x in model.parameters()])
+if MAIN:
+    x = t.rand((1, 1, 28, 28)).to(device)
+    model(x)
+    print([x.device for x in model.parameters()])
 # %%
 if MAIN:
     MNIST_TRANSFORM = transforms.Compose([
@@ -510,9 +510,9 @@ class ResNet34(nn.Module):
 if MAIN:
     my_resnet = ResNet34()
 # %%
-
-x = t.rand((1, 3, 224, 224))
-my_resnet(x)
+if MAIN:
+    x = t.rand((1, 3, 224, 224))
+    my_resnet(x)
 
 # %%
 def copy_weights(my_resnet: ResNet34, pretrained_resnet: models.resnet.ResNet) -> ResNet34:
@@ -540,7 +540,8 @@ if MAIN:
     pretrained_resnet = models.resnet34(weights=models.ResNet34_Weights.IMAGENET1K_V1)
     my_resnet = copy_weights(my_resnet, pretrained_resnet)
 # %%
-print_param_count(my_resnet, pretrained_resnet)
+if MAIN:
+    print_param_count(my_resnet, pretrained_resnet)
 # %%
 if MAIN:
     IMAGE_FILENAMES = [
@@ -560,18 +561,19 @@ if MAIN:
 
     images = [Image.open(IMAGE_FOLDER / filename) for filename in IMAGE_FILENAMES]
 # %%
-# if MAIN:
-images[0]
+if MAIN:
+    images[0]
 # %%
-IMAGE_SIZE = 224
-IMAGENET_MEAN = [0.485, 0.456, 0.406]
-IMAGENET_STD = [0.229, 0.224, 0.225]
+if MAIN:
+    IMAGE_SIZE = 224
+    IMAGENET_MEAN = [0.485, 0.456, 0.406]
+    IMAGENET_STD = [0.229, 0.224, 0.225]
 
-IMAGENET_TRANSFORM = transforms.Compose([
-    transforms.ToTensor(),
-    transforms.Resize((IMAGE_SIZE, IMAGE_SIZE)),
-    transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
-])
+    IMAGENET_TRANSFORM = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Resize((IMAGE_SIZE, IMAGE_SIZE)),
+        transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
+    ])
 # %%
 def prepare_data(images: List[Image.Image]) -> t.Tensor:
     '''
