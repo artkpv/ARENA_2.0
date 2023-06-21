@@ -56,3 +56,16 @@ if __name__ == '__main__':
     value = 0
     add_and_subtract()
 # %%
+from test import test_broadcast_naive
+
+def broadcast_naive(tensor: torch.Tensor, src: int):
+    if dist.get_rank() == src:
+        for d in range(dist.get_world_size()):
+            if d != src:
+                dist.send(tensor, d)
+    else:
+        dist.recv(tensor)
+
+if __name__ == '__main__':
+    test_broadcast_naive(broadcast_naive)
+# %%
