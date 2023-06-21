@@ -8,8 +8,12 @@ from typing import List
 from pathlib import Path
 import gdown
 
-gdown.download("https://drive.google.com/file/d/1QgkqHSPDwQD-Z0K0-4CUhp8fW-X0hWds/view", '/tmp/libnccl.so.2.18.1', quiet=False, fuzzy=True)
-gdown.download("https://drive.google.com/file/d/1tqUv0OktQdarW8hUyHjqNnxDP1JyUdkq/view?usp=sharing", quiet=False, fuzzy=True)
+libncclpath = Path('/tmp/libnccl.so.2.18.1')
+if not libncclpath.exists():
+    gdown.download("https://drive.google.com/file/d/1QgkqHSPDwQD-Z0K0-4CUhp8fW-X0hWds/view", '/tmp/libnccl.so.2.18.1', quiet=False, fuzzy=True)
+imagenetzip = Path('/root/arena_artem/chapter3_training_at_scale/exercises/part2_dist_training/imagenet_38k.zip')
+if not imagenetzip.exists():
+    gdown.download("https://drive.google.com/file/d/1tqUv0OktQdarW8hUyHjqNnxDP1JyUdkq/view?usp=sharing", quiet=False, fuzzy=True)
 
 # Make sure exercises are in the path
 chapter = r"chapter3_training_at_scale"
@@ -140,31 +144,55 @@ if __name__ == '__main__':
 from test import test_reduce_tree
 
 def reduce_tree(tensor: torch.Tensor, dst: int, op=ReduceOp.SUM):
+    # SOLUTION
+    curr_mult = dist.get_world_size() / 2
+    rank_shifted = lambda: (dist.get_rank() - dst) % dist.get_world_size()
+    while curr_mult >= 1:
+        if rank_shifted() < curr_mult:
+            buff = torch.empty_like(tensor)
+            dist.recv(buff, (dist.get_rank() + curr_mult) % dist.get_world_size())
+            if op == ReduceOp.SUM:
+                tensor += buff
+            elif op == ReduceOp.PRODUCT:
+                tensor *= buff
+            elif op == ReduceOp.MAX:
+                tensor = torch.max(tensor, buff)
+            elif op == ReduceOp.MIN:
+                tensor = torch.min(tensor, buff)
+            else:
+                raise NotImplementedError(f'op {op} not implemented')
+        elif rank_shifted() < curr_mult * 2:
+            dist.send(tensor, (dist.get_rank() - curr_mult) % dist.get_world_size())
+        curr_mult /= 2
+    dist.barrier()
+
+def _reduce(received, target, op):
+    if op == ReduceOp.SUM:
+        target.add_(received)
+    elif op == ReduceOp.PRODUCT:
+        target.mul_(received)
+    elif op == ReduceOp.MAX:
+        target = torch.max(target, received)
+    elif op == ReduceOp.MIN:
+        target = torch.min(target, received)
+    else:
+        raise NotImplementedError(f'op {op} not implemented')
+    return target
+
+def reduce_tree_WRONG(tensor: torch.Tensor, dst: int, op=ReduceOp.SUM):
     r = dist.get_rank()
     ws = dist.get_world_size()
-    def reduce(received):
-        nonlocal tensor
-        if op == ReduceOp.SUM:
-            tensor.add_(received)
-        elif op == ReduceOp.PRODUCT:
-            tensor.mul_(received)
-        elif op == ReduceOp.MAX:
-            tensor = torch.max(tensor, received)
-        elif op == ReduceOp.MIN:
-            tensor = torch.min(tensor, received)
-        else:
-            raise NotImplementedError(f'op {op} not implemented')
     if r < dst:
         if 0 <= r-1:
             received = torch.empty_like(tensor)
             dist.recv(received, r-1)
-            reduce(received)
+            tensor = _reduce(received, tensor, op)
         dist.send(tensor, r+1)
     elif dst < r:
         if r+1 < ws:
             received = torch.empty_like(tensor)
             dist.recv(received, r+1)
-            reduce(received)
+            tensor = _reduce(received, tensor, op)
         dist.send(tensor, r-1)
     else:
         assert r == dst
@@ -172,10 +200,57 @@ def reduce_tree(tensor: torch.Tensor, dst: int, op=ReduceOp.SUM):
             if 0 <= i < ws:
                 received = torch.empty_like(tensor)
                 dist.recv(received, i)
-                reduce(received)
+                tensor = _reduce(received, tensor, op)
 
 
 if __name__ == '__main__':
     test_reduce_tree(reduce_tree)
+    print('pass')
+
+# %%
+from test import test_allreduce_naive
+
+def allreduce_naive(tensor: torch.Tensor, op=ReduceOp.SUM):
+    r = dist.get_rank()
+    root = 0
+    if r != root:
+        dist.send(tensor, root)
+    dist.barrier()
+    if r == root:
+        ws = dist.get_world_size()
+        for s in range(ws):
+            if s != r:
+                received = torch.empty_like(tensor)
+                dist.recv(received, s)
+                tensor = _reduce(received, tensor, op)
+        dist.broadcast(tensor, r)
+    dist.barrier()
+    if r != root:
+        dist.recv(tensor, root)
+
+if __name__ == '__main__':
+    test_allreduce_naive(allreduce_naive)
+    print('pass')
+# %%
+from test import test_allreduce_butterfly
+from math import ceil
+
+def allreduce_butterfly(tensor: torch.Tensor, op=ReduceOp.SUM):
+    i = dist.get_rank()
+    ws = dist.get_world_size()
+    span = ws
+    while span > 1:
+        span_start = span * (i // span)
+        j = span_start + (i + span // 2) % span
+        if 0 <= j < ws:
+            dist.send(tensor, j)
+            received = torch.empty_like(tensor)
+            dist.recv(received, j)
+            tensor = _reduce(received, tensor, op)
+        dist.barrier()
+        span = int(ceil(span / 2))
+
+if __name__ == '__main__':
+    test_allreduce_butterfly(allreduce_butterfly)
     print('pass')
 # %%
