@@ -91,10 +91,6 @@ from pathlib import Path
 import time
 from transformers import Trainer, TrainingArguments, AutoModelForImageClassification
 
-from trlx.data.default_configs import TRLConfig, TrainConfig, OptimizerConfig, SchedulerConfig, TokenizerConfig, ModelConfig
-from trlx.models.modeling_ppo import PPOConfig
-from trlx import train
-
 orig_dir = os.getcwd()
 
 chapter = r"chapter3_training_at_scale"
@@ -320,7 +316,7 @@ The (Trainer)[https://huggingface.co/docs/transformers/main_classes/trainer#trai
 
 1. model - The model that you want to train which could either be a PyTorch model or a pretrained Transformers model. For this exercise we will be using a Transformers model hosted [here](https://huggingface.co/microsoft/resnet-18)
 2. args - The args is an object of the [TrainingArguments](https://huggingface.co/docs/transformers/main_classes/trainer#transformers.TrainingArguments) class that will contain all the hyperparameters the Trainer will use for training and/or evaluation.
-3. train_dataset - The train_dataset is a [torch.utils.data.Dataset](https://pytorch.org/tutorials/beginner/basics/data_tutorial.html#datasets-dataloaders) object
+3. train_dataset - The train_dataset is a Huggingface dataset object
 
 Additionally you might want to add arguments if you want to work with other models especially language transformers:
 
@@ -329,7 +325,8 @@ Additionally you might want to add arguments if you want to work with other mode
 
 Things to note:
 
-1. We want to move to a model from Huggingface Transformers and ditch our old torchvision model, this is due to the fact that the Huggingface Trainer plays
+1. We want to move to a model from Huggingface Transformers and ditch our old torchvision model, this is due to the fact that the Huggingface Trainer plays nicely with the models in the Transformers library.
+2. We haven't defined a loss function, why is this not neccessary? 
 ```python
 
 def huggingface_train_with_Trainer():
@@ -354,13 +351,32 @@ def huggingface_train_with_Trainer():
  	model = AutoModelForImageClassification.from_pretrained("microsoft/resnet-18")
   	train_dataset = torchvision.datasets.CIFAR100(root='/data/', download=True, train=True, transform=transform_train)
 
- 	training_args = TrainingArguments(
-  					output_dir='output',
-       					num_train_epochs=10,
-	    				optim=optim.SGD(model.parameters(), lr=0.001), 				
-  					) 
+	training_args = TrainingArguments(
+    			output_dir="./results",
+    			num_train_epochs=100,
+    			per_device_train_batch_size=128,
+    			per_device_eval_batch_size=128,
+    			learning_rate=0.1,
+    			weight_decay=1e-4,
+    			logging_dir="./logs",
+    			logging_steps=100,
+    			evaluation_strategy="epoch",
+    			save_strategy="epoch",
+    			save_total_limit=3,
+    			gradient_accumulation_steps=1,
+		)
        
- 	trainer = Trainer(model=model, args=training_args, train_dataset=train_dataset)
+ 	# Define the Trainer
+	trainer = Trainer(
+    		model=model,
+    		args=training_args,
+    		train_dataset=train_dataset,
+    		eval_dataset=test_dataset,
+    		data_collator=None,
+    		compute_metrics=None,
+    		optimizers=(torch.optim.SGD(model.parameters(), lr=training_args.learning_rate, momentum=0.9), None),
+		)
+  
 	trainer.train()
 ```
 </details>
@@ -495,6 +511,49 @@ Config file:
 ```
 </details>
 
+### Exercise - Huggingface Finetuning
+
+```c
+Difficulty: 🟠🟠🟠🟠⚪
+Importance: 🟠🟠🟠🟠⚪
+
+You should spend up to 30-40 minutes on this exercise.
+```
+
+All of the instructions for this exercise can be found [here](https://huggingface.co/docs/transformers/main/training#train-with-pytorch-trainer), the previous exercises should have made you familiar with everything that the blogpost talks about.
+
+Task: Finetune BERT with the Yelp dataset to output Yelp reviews
+
+Get the dataset from Huggingface hosted [here](https://huggingface.co/datasets/yelp_review_full), we will be using the BERT model hosted [here](https://huggingface.co/bert-base-cased).
+
+<details>
+<summary>Solution</summary>
+
+```python
+model = AutoModelForSequenceClassification.from_pretrained("bert-base-cased", num_labels=5)
+metric = evaluate.load("accuracy")
+
+def compute_metrics(eval_pred):
+    logits, labels = eval_pred
+    predictions = np.argmax(logits, axis=-1)
+    return metric.compute(predictions=predictions, references=labels)
+
+training_args = TrainingArguments(output_dir="test_trainer", evaluation_strategy="epoch")
+
+trainer = Trainer(
+    model=model,
+    args=training_args,
+    train_dataset=small_train_dataset,
+    eval_dataset=small_eval_dataset,
+    compute_metrics=compute_metrics,
+)
+trainer.train()
+```
+
+</details>
+
+
+
 ## TRLX
 
 We've encountered TRLX before and it uses Huggingface Accelerate as the backend. This means we should be able to directly apply what we did in the first section today to get TRLX started with distributed training.
@@ -515,7 +574,24 @@ Importance: 🟠🟠🟠🟠⚪
 You should spend up to 40-50 minutes on this exercise.
 ```
 
-Copy in your training loops from the RLHF sections of the RL chapter and add the magic code in to turn your code into distributed training code which should work simply out of the box.
+Copy in your training loops from the RLHF sections of the RL chapter and add the magic code in to turn your code into distributed training code which should work simply out of the box. There need to be extra setup steps before you use TRLX because it expects you to have different versions of the transformers library than what we've been using today.
+
+Setup:
+
+```python
+In terminal:
+
+git clone https://github.com/atagade/trlx
+cd trlx
+pip install torch==2.0.0 --extra-index-url https://download.pytorch.org/whl/cu116 # for cuda
+pip install -e .
+
+In notebook:
+
+from trlx.data.default_configs import TRLConfig, TrainConfig, OptimizerConfig, SchedulerConfig, TokenizerConfig, ModelConfig
+from trlx.models.modeling_ppo import PPOConfig
+from trlx import train
+```
 
 ```python
 # SOLUTION
