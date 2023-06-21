@@ -60,12 +60,122 @@ from test import test_broadcast_naive
 
 def broadcast_naive(tensor: torch.Tensor, src: int):
     if dist.get_rank() == src:
-        for d in range(dist.get_world_size()):
-            if d != src:
-                dist.send(tensor, d)
+        dist.broadcast(tensor, src)
+        #for d in range(dist.get_world_size()):
+        #    if d != src:
+        #        dist.send(tensor, d)
     else:
-        dist.recv(tensor)
+        dist.recv(tensor, src)
 
 if __name__ == '__main__':
     test_broadcast_naive(broadcast_naive)
+    print('pass')
+# %%
+from test import test_broadcast_tree
+
+def broadcast_tree(tensor: torch.Tensor, src: int):
+    r = dist.get_rank()
+    ws = dist.get_world_size()
+    if r < src:
+        dist.recv(tensor, r+1)
+        if 0 <= r - 1:
+            dist.send(tensor, r - 1)
+    elif src < r:
+        dist.recv(tensor, r-1)
+        if r + 1 < ws:
+            dist.send(tensor, r + 1)
+    else:
+        if 0 <= r - 1:
+            dist.send(tensor, r - 1)
+        if r + 1 < ws:
+            dist.send(tensor, r + 1)
+
+if __name__ == '__main__':
+    test_broadcast_tree(broadcast_tree)
+    print('pass')
+
+# %%
+from test import test_broadcast_ring
+
+def broadcast_ring(tensor: torch.Tensor, src: int):
+    r = dist.get_rank()
+    ws = dist.get_world_size()
+    if r != src:
+        dist.recv(tensor, (ws+r-1)%ws)
+    if (r+1)%ws != src:
+        dist.send(tensor, (r+1)%ws)
+    
+
+if __name__ == '__main__':
+    test_broadcast_ring(broadcast_ring)
+    print('pass')
+# %%
+from test import test_reduce_naive
+
+def reduce_naive(tensor: torch.Tensor, dst: int, op=ReduceOp.SUM):
+    r = dist.get_rank()
+    ws = dist.get_world_size()
+    if r == dst:
+        for i in range(ws):
+            if i != r:
+                received = torch.empty_like(tensor)
+                dist.recv(received, i)
+                if op == ReduceOp.SUM:
+                    tensor.add_(received)
+                elif op == ReduceOp.PRODUCT:
+                    tensor.mul_(received)
+                elif op == ReduceOp.MAX:
+                    tensor = torch.max(tensor, received)
+                elif op == ReduceOp.MIN:
+                    tensor = torch.min(tensor, received)
+                else:
+                    raise NotImplementedError(f'op {op} not implemented')
+    else:
+        dist.send(tensor, dst)
+
+if __name__ == '__main__':
+    test_reduce_naive(reduce_naive)
+    print('pass')
+# %%
+from test import test_reduce_tree
+
+def reduce_tree(tensor: torch.Tensor, dst: int, op=ReduceOp.SUM):
+    r = dist.get_rank()
+    ws = dist.get_world_size()
+    def reduce(received):
+        nonlocal tensor
+        if op == ReduceOp.SUM:
+            tensor.add_(received)
+        elif op == ReduceOp.PRODUCT:
+            tensor.mul_(received)
+        elif op == ReduceOp.MAX:
+            tensor = torch.max(tensor, received)
+        elif op == ReduceOp.MIN:
+            tensor = torch.min(tensor, received)
+        else:
+            raise NotImplementedError(f'op {op} not implemented')
+    if r < dst:
+        if 0 <= r-1:
+            received = torch.empty_like(tensor)
+            dist.recv(received, r-1)
+            reduce(received)
+        dist.send(tensor, r+1)
+    elif dst < r:
+        if r+1 < ws:
+            received = torch.empty_like(tensor)
+            dist.recv(received, r+1)
+            reduce(received)
+        dist.send(tensor, r-1)
+    else:
+        assert r == dst
+        for i in (r-1, r+1):
+            if 0 <= i < ws:
+                received = torch.empty_like(tensor)
+                dist.recv(received, i)
+                reduce(received)
+
+
+if __name__ == '__main__':
+    test_reduce_tree(reduce_tree)
+    print('pass')
 # %%
