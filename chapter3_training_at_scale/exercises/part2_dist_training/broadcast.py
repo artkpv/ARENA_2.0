@@ -4,12 +4,12 @@ import logging
 import time
 import random
 import string
-from mediapy import read_image
 
 import torch.distributed as dist
 import torch
 import tqdm
 from torch.utils.data import Subset, DataLoader, TensorDataset
+from torchvision.io import read_image
 from torchvision import datasets, transforms, models
 import json
 
@@ -70,7 +70,16 @@ def foo(rank, world_size):
     imagenet_valset = Subset(imagenet_valset, indices=range(rank, len(imagenet_valset), TOTAL_RANKS))
     imagenet_valset = [(x(), y) for x, y in tqdm.tqdm(imagenet_valset, desc=f'[rank {rank}]')]
     imagenet_valset = [(torch.cat([x,x,x],0) if x.shape[0] == 1 else x, y) for x, y in imagenet_valset]
-    transform = torch.jit.script(torch.nn.Sequential(transforms.ConvertImageDtype(torch.float32),transforms.Resize((224, 224)), transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])))
+    transform = torch.jit.script(torch.nn.Sequential(
+        transforms.ConvertImageDtype(torch.float32),
+        transforms.Resize((224, 224)), 
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    ))
+    #transform = torch.nn.Sequential(
+    #    transforms.ConvertImageDtype(torch.float32),
+    #    transforms.Resize((224, 224)),
+    #    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    #)
     logging.warning("Transforming Data:")
     imagenet_valset = [(transform(x), y) for x, y in tqdm.tqdm(imagenet_valset, desc=f'[rank {rank}]')]
 
@@ -92,8 +101,8 @@ def foo(rank, world_size):
             losses.add(loss)
     mean_acc = torch.mean(accuracies)
     mean_loss = torch.mean(losses)
-    print(f'{mean_acc=}')
-    print(f'{mean_loss=}')
+    logging.warning(f'{mean_acc=}')
+    logging.warning(f'{mean_loss=}')
     #losses = torch.tensor(losses)
     #accuracies = torch.tensor(accuracies)
     #if rank == 0:
