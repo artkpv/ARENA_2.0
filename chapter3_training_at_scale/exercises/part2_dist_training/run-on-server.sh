@@ -2,12 +2,14 @@
 
 python_script=$( realpath $1 )
 
-cd
 # check if imagenet_38k.zip exists
-if [ ! -f imagenet_38k.zip ]; then
-    wget http://192.9.135.130:8000/ILSVRC/Data/CLS-LOC/imagenet_38k.zip -O imagenet_38k.zip
-    unzip imagenet_38k.zip
-fi
+#imagenet_dir=~/imagenet_38k
+#if [ ! -e $imagenet_dir ]; then
+#    mkdir -p $imagenet_dir
+#    pushd $imagenet_dir
+#    wget http://192.9.135.130:8000/ILSVRC/Data/CLS-LOC/imagenet_38k.zip -O imagenet_38k.zip
+#    unzip imagenet_38k.zip
+#fi
 
 export NCCL_DEBUG=TRACE
 export NCCL_P2P_DISABLE=1

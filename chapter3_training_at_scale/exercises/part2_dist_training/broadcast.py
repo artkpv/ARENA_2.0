@@ -4,9 +4,12 @@ import logging
 import time
 import random
 import string
+from mediapy import read_image
 
 import torch.distributed as dist
 import torch
+import tqdm
+from torch.utils.data import Subset, DataLoader, TensorDataset
 from torchvision import datasets, transforms, models
 import json
 
@@ -34,7 +37,14 @@ def main(args):
     time.sleep(1)
 
     # your code starts here - everything before this is setup code
+    foo(rank, world_size)
 
+    # your code ends here - this is followed by teardown code
+    dist.barrier()  # wait for all process to reach this point
+    dist.destroy_process_group()
+
+
+def basic_test(rank, world_size):
     # method 1 to implement broadcast
     if rank == 0:
         tensor = torch.ones((10, 10), device='cuda:'+str(0 if UNIGPU else rank))
@@ -52,21 +62,51 @@ def main(args):
 
     logging.warning(f'tensor {tensor}')
 
-    # your code ends here - this is followed by teardown code
-    dist.barrier()  # wait for all process to reach this point
-    dist.destroy_process_group()
 
-def foo():
-    file_mappings = json.load(open('/dataset/file_mappings_imagenet.json'))
+def foo(rank, world_size):
+    file_mappings = json.load(open('/root/imagenet_38k/file_mappings_imagenet.json'))
     logging.warning("Loading Data:")
-
-    imagenet_valset = list((lambda k=k: read_image(f'/dataset/val/{k}.JPEG'), int(v)) for k, v in file_mappings.items())
+    imagenet_valset = list((lambda k=k: read_image(f'/root/imagenet_38k/val/{k}.JPEG'), int(v)) for k, v in file_mappings.items())
     imagenet_valset = Subset(imagenet_valset, indices=range(rank, len(imagenet_valset), TOTAL_RANKS))
     imagenet_valset = [(x(), y) for x, y in tqdm.tqdm(imagenet_valset, desc=f'[rank {rank}]')]
     imagenet_valset = [(torch.cat([x,x,x],0) if x.shape[0] == 1 else x, y) for x, y in imagenet_valset]
     transform = torch.jit.script(torch.nn.Sequential(transforms.ConvertImageDtype(torch.float32),transforms.Resize((224, 224)), transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])))
     logging.warning("Transforming Data:")
     imagenet_valset = [(transform(x), y) for x, y in tqdm.tqdm(imagenet_valset, desc=f'[rank {rank}]')]
+
+    loader = DataLoader(imagenet_valset, batch_size=32, shuffle=True)
+    losses = []
+    accuracies = []
+    resnet34 = models.resnet34(weights=models.ResNet34_Weights.IMAGENET1K_V1).eval()
+    device = torch.device('cuda', index=rank)
+    with torch.inference_mode():
+        for data, labels in loader:
+            data = data.to(device)
+            label = label.to(device)
+            logits = resnet34(data)
+            accuracy = (label == logits.argmax(dim=-1)).float().sum() / data.size(0)
+            loss = torch.nn.functional.cross_entropy(logits, labels)
+            dist.reduce(loss, 0)
+            dist.reduce(accuracy, 0)
+            accuracies.add(accuracy)
+            losses.add(loss)
+    mean_acc = torch.mean(accuracies)
+    mean_loss = torch.mean(losses)
+    print(f'{mean_acc=}')
+    print(f'{mean_loss=}')
+    #losses = torch.tensor(losses)
+    #accuracies = torch.tensor(accuracies)
+    #if rank == 0:
+    #    buffer
+    #    dist.recv(losses)
+    #    dist.recv(losses)
+    #    for i in range(world_size):
+    #        if i == rank:
+    #            continue
+        
+
+
+
 
 if __name__ == '__main__':
     args = argparse.Namespace(cluster_id=0, rank=-1, world_size=WORLD_SIZE)
