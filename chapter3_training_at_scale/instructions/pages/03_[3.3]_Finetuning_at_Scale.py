@@ -283,6 +283,71 @@ Cons:
 
 5. Lack of Customization: While Accelerate provides a convenient and straightforward interface, it may lack certain customization options compared to lower-level frameworks. If you require fine-grained control over distributed training strategies or have unique requirements, you may find the abstraction of Accelerate limiting.
 
+### Exercise - Huggingface Finetuning
+
+```c
+Difficulty: 🟠🟠🟠🟠⚪
+Importance: 🟠🟠🟠🟠⚪
+
+You should spend up to 30-40 minutes on this exercise.
+```
+
+All of the instructions for this exercise can be found [here](https://huggingface.co/docs/transformers/main/training#train-with-pytorch-trainer), this exercise will also test your aptitude with reading documentation and translating it into working code.
+
+Task: Finetune BERT with the Yelp dataset to output Yelp reviews
+
+Get the dataset from Huggingface hosted [here](https://huggingface.co/datasets/yelp_review_full), we will be using the BERT model hosted [here](https://huggingface.co/bert-base-cased).
+
+We will also briefly talk about the Huggingface Trainer object:
+
+The (Trainer)[https://huggingface.co/docs/transformers/main_classes/trainer#trainer] class has three arguments that are essential to starting any training run which are:
+
+1. model - The model that you want to train which could either be a PyTorch model or a pretrained Transformers model. For this exercise we will be using a Transformers model hosted [here](https://huggingface.co/microsoft/resnet-18)
+2. args - The args is an object of the [TrainingArguments](https://huggingface.co/docs/transformers/main_classes/trainer#transformers.TrainingArguments) class that will contain all the hyperparameters the Trainer will use for training and/or evaluation.
+3. train_dataset - The train_dataset is a Huggingface dataset object
+
+Additionally you might want to add arguments if you want to work with other models especially language transformers:
+
+1. eval_dataset - The dataset to use for evaluation
+2. tokenizer - The tokenizer used to preprocess the data
+
+Things to note:
+
+1. We want to move to a model from Huggingface Transformers and ditch our old torchvision model, this is due to the fact that the Huggingface Trainer plays nicely with the models in the Transformers library.
+2. We need to use a compute_metrics function that will do the training evaluations for us during the training run
+
+<details>
+<summary>Solution</summary>
+
+```python
+raw_dataset = load_dataset("glue", "mrpc")
+
+tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
+
+def tokenize_function(examples):
+  return tokenizer(examples['sentence1'], examples['sentence2'], truncation=True)
+
+tokenized_dataset = raw_dataset.map(tokenize_function, batched=True)
+
+data_collator = DataCollatorWithPadding(tokenizer)
+
+model = AutoModelForSequenceClassification.from_pretrained("bert-base-cased", num_labels=2)
+
+training_args = TrainingArguments('test')
+
+trainer = Trainer(
+                  model,
+                  training_args,
+                  train_dataset = tokenized_datasets['train'],
+                  eval_dataset = tokenized_dataset['validation'],
+                  data_collator = data_collator,
+                  tokenizer = tokenizer
+)
+
+trainer.train()
+```
+
+</details>
 
 ## Microsoft DeepSpeed
 
@@ -312,21 +377,7 @@ Importance: 🟠🟠🟠🟠⚪
 
 You should spend up to 20-30 minutes on this exercise.
 ```
-The (Trainer)[https://huggingface.co/docs/transformers/main_classes/trainer#trainer] class has three arguments that are essential to starting any training run which are:
 
-1. model - The model that you want to train which could either be a PyTorch model or a pretrained Transformers model. For this exercise we will be using a Transformers model hosted [here](https://huggingface.co/microsoft/resnet-18)
-2. args - The args is an object of the [TrainingArguments](https://huggingface.co/docs/transformers/main_classes/trainer#transformers.TrainingArguments) class that will contain all the hyperparameters the Trainer will use for training and/or evaluation.
-3. train_dataset - The train_dataset is a Huggingface dataset object
-
-Additionally you might want to add arguments if you want to work with other models especially language transformers:
-
-1. eval_dataset - The dataset to use for evaluation
-2. tokenizer - The tokenizer used to preprocess the data
-
-Things to note:
-
-1. We want to move to a model from Huggingface Transformers and ditch our old torchvision model, this is due to the fact that the Huggingface Trainer plays nicely with the models in the Transformers library.
-2. We haven't defined a loss function, why is this not neccessary? 
 ```python
 
 def huggingface_train_with_Trainer():
@@ -510,49 +561,6 @@ Config file:
 
 ```
 </details>
-
-### Exercise - Huggingface Finetuning
-
-```c
-Difficulty: 🟠🟠🟠🟠⚪
-Importance: 🟠🟠🟠🟠⚪
-
-You should spend up to 30-40 minutes on this exercise.
-```
-
-All of the instructions for this exercise can be found [here](https://huggingface.co/docs/transformers/main/training#train-with-pytorch-trainer), the previous exercises should have made you familiar with everything that the blogpost talks about.
-
-Task: Finetune BERT with the Yelp dataset to output Yelp reviews
-
-Get the dataset from Huggingface hosted [here](https://huggingface.co/datasets/yelp_review_full), we will be using the BERT model hosted [here](https://huggingface.co/bert-base-cased).
-
-<details>
-<summary>Solution</summary>
-
-```python
-model = AutoModelForSequenceClassification.from_pretrained("bert-base-cased", num_labels=5)
-metric = evaluate.load("accuracy")
-
-def compute_metrics(eval_pred):
-    logits, labels = eval_pred
-    predictions = np.argmax(logits, axis=-1)
-    return metric.compute(predictions=predictions, references=labels)
-
-training_args = TrainingArguments(output_dir="test_trainer", evaluation_strategy="epoch")
-
-trainer = Trainer(
-    model=model,
-    args=training_args,
-    train_dataset=small_train_dataset,
-    eval_dataset=small_eval_dataset,
-    compute_metrics=compute_metrics,
-)
-trainer.train()
-```
-
-</details>
-
-
 
 ## TRLX
 
