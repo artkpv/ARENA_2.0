@@ -8,6 +8,7 @@ import string
 import torch.distributed as dist
 import torch
 from torchvision import datasets, transforms, models
+import json
 
 CLUSTER_SIZE = 1  # the number of seperate compute nodes we have
 WORLD_SIZE = 2  # the number of processes we want to launch - this is usually equal to the number of GPUs we have on this machine
@@ -55,7 +56,17 @@ def main(args):
     dist.barrier()  # wait for all process to reach this point
     dist.destroy_process_group()
 
+def foo():
+    file_mappings = json.load(open('/dataset/file_mappings_imagenet.json'))
+    logging.warning("Loading Data:")
 
+    imagenet_valset = list((lambda k=k: read_image(f'/dataset/val/{k}.JPEG'), int(v)) for k, v in file_mappings.items())
+    imagenet_valset = Subset(imagenet_valset, indices=range(rank, len(imagenet_valset), TOTAL_RANKS))
+    imagenet_valset = [(x(), y) for x, y in tqdm.tqdm(imagenet_valset, desc=f'[rank {rank}]')]
+    imagenet_valset = [(torch.cat([x,x,x],0) if x.shape[0] == 1 else x, y) for x, y in imagenet_valset]
+    transform = torch.jit.script(torch.nn.Sequential(transforms.ConvertImageDtype(torch.float32),transforms.Resize((224, 224)), transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])))
+    logging.warning("Transforming Data:")
+    imagenet_valset = [(transform(x), y) for x, y in tqdm.tqdm(imagenet_valset, desc=f'[rank {rank}]')]
 
 if __name__ == '__main__':
     args = argparse.Namespace(cluster_id=0, rank=-1, world_size=WORLD_SIZE)
