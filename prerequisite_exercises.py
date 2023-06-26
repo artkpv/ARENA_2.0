@@ -1,3 +1,4 @@
+'''
 
 # Pre-ARENA PyTorch Exercises
 
@@ -44,7 +45,8 @@ We will be using [Visual Studio Code](https://code.visualstudio.com/) as the off
 
 At some point you'll be added to a ARENA Slack and be able to ask questions there. If you need help before then, feel free to email Callum at `callum@arena.education` directly.
 
-```python
+'''
+# %%
 import math
 from einops import rearrange, repeat, reduce
 import torch as t
@@ -62,6 +64,7 @@ def assert_all_close(actual: t.Tensor, expected: t.Tensor, rtol=1e-05, atol=0.00
     print("Passed!")
 
 
+# %%
 def rearrange_1() -> t.Tensor:
     """Return the following tensor using only torch.arange and einops.rearrange:
 
@@ -69,36 +72,39 @@ def rearrange_1() -> t.Tensor:
      [5, 6],
      [7, 8]]
     """
-    pass
+    return rearrange(t.arange(3,9), '(d1 d2) -> d1 d2',d1=3, d2=2)
 
 
 expected = t.tensor([[3, 4], [5, 6], [7, 8]])
 assert_all_equal(rearrange_1(), expected)
 
 
+# %%
 def rearrange_2() -> t.Tensor:
     """Return the following tensor using only torch.arange and einops.rearrange:
 
     [[1, 2, 3],
      [4, 5, 6]]
     """
-    pass
+    return rearrange(t.arange(1,7), '(d1 d2) -> d1 d2', d1=2, d2=3)
 
 
 assert_all_equal(rearrange_2(), t.tensor([[1, 2, 3], [4, 5, 6]]))
 
 
+# %%
 def rearrange_3() -> t.Tensor:
     """Return the following tensor using only torch.arange and einops.rearrange:
 
     [[[1], [2], [3], [4], [5], [6]]]
     """
-    pass
+    return rearrange(t.arange(1,7), '(d1 d2 d3) -> d1 d2 d3', d1=1, d2=6, d3=1)
 
 
 assert_all_equal(rearrange_3(), t.tensor([[[1], [2], [3], [4], [5], [6]]]))
 
 
+# %%
 def temperatures_average(temps: t.Tensor) -> t.Tensor:
     """Return the average temperature for each week.
 
@@ -108,7 +114,7 @@ def temperatures_average(temps: t.Tensor) -> t.Tensor:
     You can do this with a single call to reduce.
     """
     assert len(temps) % 7 == 0
-    pass
+    return reduce(temps, '(w d) -> w', 'mean', d=7)
 
 
 temps = t.Tensor([71, 72, 70, 75, 71, 72, 70, 68, 65, 60, 68, 60, 55, 59, 75, 80, 85, 80, 78, 72, 83])
@@ -116,13 +122,15 @@ expected = t.tensor([71.5714, 62.1429, 79.0])
 assert_all_close(temperatures_average(temps), expected)
 
 
+# %%
 def temperatures_differences(temps: t.Tensor) -> t.Tensor:
     """For each day, subtract the average for the week the day belongs to.
 
     temps: as above
     """
     assert len(temps) % 7 == 0
-    pass
+    avg = reduce(temps, '(w d) -> w', 'mean', d=7)
+    return temps - repeat(avg, 'w -> (w d)', d=7)
 
 
 expected = t.tensor(
@@ -154,6 +162,7 @@ actual = temperatures_differences(temps)
 assert_all_close(actual, expected)
 
 
+# %%
 def temperatures_normalized(temps: t.Tensor) -> t.Tensor:
     """For each day, subtract the weekly average and divide by the weekly standard deviation.
 
@@ -161,7 +170,9 @@ def temperatures_normalized(temps: t.Tensor) -> t.Tensor:
 
     Pass torch.std to reduce.
     """
-    pass
+    avg = reduce(temps, '(w d) -> w', 'mean', d=7)
+    std = reduce(temps, '(w d) -> w', t.std, d=7)
+    return (temps - repeat(avg, 'w -> (w d)', d=7)) / repeat(std, 'w -> (w d)', d=7)
 
 
 expected = t.tensor(
@@ -193,9 +204,11 @@ actual = temperatures_normalized(temps)
 assert_all_close(actual, expected)
 
 
+# %%
 def batched_dot_product_nd(a: t.Tensor, b: t.Tensor) -> t.Tensor:
     """Return the batched dot product of a and b, where the first dimension is the batch dimension.
 
+# %%
     That is, out[i] = dot(a[i], b[i]) for i in 0..len(a).
     a and b can have any number of dimensions greater than 1.
 
@@ -218,6 +231,7 @@ expected2 = t.tensor([14, 126, 366])
 assert_all_equal(actual2, expected2)
 
 
+# %%
 def identity_matrix(n: int) -> t.Tensor:
     """Return the identity matrix of size nxn.
 
@@ -234,6 +248,7 @@ assert_all_equal(identity_matrix(3), t.Tensor([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
 assert_all_equal(identity_matrix(0), t.zeros((0, 0)))
 
 
+# %%
 def sample_distribution(probs: t.Tensor, n: int) -> t.Tensor:
     """Return n random samples from probs, where probs is a normalized probability distribution.
 
@@ -257,6 +272,7 @@ freqs = t.bincount(sample_distribution(probs, n)) / n
 assert_all_close(freqs, probs, rtol=0.001, atol=0.001)
 
 
+# %%
 def classifier_accuracy(scores: t.Tensor, true_classes: t.Tensor) -> t.Tensor:
     """Return the fraction of inputs for which the maximum score corresponds to the true class for that input.
 
@@ -275,6 +291,7 @@ expected = 2.0 / 3.0
 assert classifier_accuracy(scores, true_classes) == expected
 
 
+# %%
 def total_price_indexing(prices: t.Tensor, items: t.Tensor) -> float:
     """Given prices for each kind of item and a tensor of items purchased, return the total price.
 
@@ -294,6 +311,7 @@ items = t.tensor([0, 0, 1, 1, 4, 3, 2])
 assert total_price_indexing(prices, items) == 9.0
 
 
+# %%
 def gather_2d(matrix: t.Tensor, indexes: t.Tensor) -> t.Tensor:
     """Perform a gather operation along the second dimension.
 
@@ -321,6 +339,7 @@ expected2 = t.tensor([[2, 4], [6, 8], [10, 12]])
 assert_all_equal(gather_2d(matrix, indexes), expected)
 
 
+# %%
 def total_price_gather(prices: t.Tensor, items: t.Tensor) -> float:
     """Compute the same as total_price_indexing, but use torch.gather."""
     assert items.max() < prices.shape[0]
@@ -332,6 +351,7 @@ items = t.tensor([0, 0, 1, 1, 4, 3, 2])
 assert total_price_gather(prices, items) == 9.0
 
 
+# %%
 def integer_array_indexing(matrix: t.Tensor, coords: t.Tensor) -> t.Tensor:
     """Return the values at each coordinate using integer array indexing.
 
@@ -356,6 +376,7 @@ actual = integer_array_indexing(mat_3d, coords_3d)
 assert_all_equal(actual, t.tensor([0, 5, 10, 15, 20]))
 
 
+# %%
 def batched_logsumexp(matrix: t.Tensor) -> t.Tensor:
     """For each row of the matrix, compute log(sum(exp(row))) in a numerically stable way.
 
@@ -382,6 +403,7 @@ actual2 = batched_logsumexp(matrix2)
 assert_all_close(actual2, expected2)
 
 
+# %%
 def batched_softmax(matrix: t.Tensor) -> t.Tensor:
     """For each row of the matrix, compute softmax(row).
 
@@ -409,6 +431,7 @@ assert_all_equal(actual2.argsort(), matrix2.argsort())
 assert_all_close(actual2.sum(dim=-1), t.ones(matrix2.shape[:-1]))
 
 
+# %%
 def batched_logsoftmax(matrix: t.Tensor) -> t.Tensor:
     """Compute log(softmax(row)) for each row of the matrix.
 
@@ -430,6 +453,7 @@ expected = t.tensor([[-4.4519, -3.4519, -2.4519, -1.4519, -0.4519]])
 assert_all_close(actual, expected)
 
 
+# %%
 def batched_cross_entropy_loss(logits: t.Tensor, true_labels: t.Tensor) -> t.Tensor:
     """Compute the cross entropy loss for each example in the batch.
 
@@ -451,6 +475,7 @@ actual = batched_cross_entropy_loss(logits, true_labels)
 assert_all_close(actual, expected)
 
 
+# %%
 def collect_rows(matrix: t.Tensor, row_indexes: t.Tensor) -> t.Tensor:
     """Return a 2D matrix whose rows are taken from the input matrix in order according to row_indexes.
 
@@ -470,6 +495,7 @@ expected = t.tensor([[0, 1, 2], [6, 7, 8], [3, 4, 5], [0, 1, 2]])
 assert_all_equal(actual, expected)
 
 
+# %%
 def collect_columns(matrix: t.Tensor, column_indexes: t.Tensor) -> t.Tensor:
     """Return a 2D matrix whose columns are taken from the input matrix in order according to column_indexes.
 
@@ -487,4 +513,3 @@ column_indexes = t.tensor([0, 2, 1, 0])
 actual = collect_columns(matrix, column_indexes)
 expected = t.tensor([[0, 2, 1, 0], [3, 5, 4, 3], [6, 8, 7, 6], [9, 11, 10, 9], [12, 14, 13, 12]])
 assert_all_equal(actual, expected)
-```
