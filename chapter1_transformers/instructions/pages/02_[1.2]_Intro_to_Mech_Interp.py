@@ -1,8 +1,13 @@
+import platform
+is_local = (platform.processor() != "")
 
 import os, sys
 from pathlib import Path
 chapter = r"chapter1_transformers"
-instructions_dir = Path(f"{os.getcwd().split(chapter)[0]}/{chapter}/instructions").resolve()
+if is_local:
+    instructions_dir = Path(f"{os.getcwd().split(chapter)[0]}/{chapter}/instructions").resolve()
+else:
+    instructions_dir = Path("/app/arena_2.0/chapter1_transformers/instructions").resolve()
 if str(instructions_dir) not in sys.path: sys.path.append(str(instructions_dir))
 os.chdir(instructions_dir)
 
@@ -27,18 +32,18 @@ def section_0():
 </ul></li>""", unsafe_allow_html=True)
 
     st.markdown(r"""
+# [1.2] TransformerLens & induction circuits
 
-<img src="https://raw.githubusercontent.com/callummcdougall/computational-thread-art/master/example_images/misc/lens2.png" width="350">
 
 
-Colab: [**exercises**](https://colab.research.google.com/drive/1w9zCWpE7xd1sDuMT_rsjARfFozeWiKF4) | [**solutions**](https://colab.research.google.com/drive/10tzGmOCQb3LoDB69vPFw71DV2d395hJl)
+### Colab: [**exercises**](https://colab.research.google.com/drive/1w9zCWpE7xd1sDuMT_rsjARfFozeWiKF4) | [**solutions**](https://colab.research.google.com/drive/10tzGmOCQb3LoDB69vPFw71DV2d395hJl)
 
 Please send any problems / bugs on the `#errata` channel in the [Slack group](https://join.slack.com/t/arena-la82367/shared_invite/zt-1uvoagohe-JUv9xB7Vr143pdx1UBPrzQ), and ask any questions on the dedicated channels for this chapter of material.
 
 You can toggle dark mode from the buttons on the top-right of this page.
 
+<img src="https://raw.githubusercontent.com/callummcdougall/computational-thread-art/master/example_images/misc/lens2.png" width="350">
 
-# [1.2] TransformerLens & induction circuits
 
 
 ## Introduction
@@ -504,7 +509,7 @@ print("Tests passed!")
 
 You'll need to use three different cache indexes in all:
 
-* `gpt2_cache["pattern", 0]` to get the attention patterns, which have shape `[seqQ, seqK]`
+* `gpt2_cache["pattern", 0]` to get the attention patterns, which have shape `[nhead, seqQ, seqK]`
 * `gpt2_cache["q", 0]` to get the query vectors, which have shape `[seqQ, nhead, headsize]`
 * `gpt2_cache["k", 0]` to get the key vectors, which have shape `[seqK, nhead, headsize]`
 
@@ -611,9 +616,9 @@ cv.activations.text_neuron_activations(
 
 The next function shows which words each of the neurons activates most / least on (note that it requires some weird indexing to work correctly).
 
+```python
 neuron_activations_for_all_layers_rearranged = utils.to_numpy(einops.rearrange(neuron_activations_for_all_layers, "seq layers neurons -> 1 layers seq neurons"))
 
-```python
 cv.topk_tokens.topk_tokens(
     # Some weird indexing required here ¯\_(ツ)_/¯
     tokens=[gpt2_str_tokens], 
@@ -2099,6 +2104,10 @@ If $A$ is the one-hot encoding for token `A`, then:
 * $A^T W_E W_{OV}^h$ is the vector which would get written to the residual stream at the destination position, if the destination token only pays attention to `A`.
 * $A^T W_E W_{OV}^h W_U$ is the unembedding of this vector, i.e. the thing which gets added to the final logits.
 
+So if the $(A, B)$-th element of this matrix is large, the interpretation is that we will predict $B$ comes next for any token which attends to $A$.
+                
+For example, a common pattern is a copying circuit: the diagonal elements $(A, A)$ are large, meaning that whatever token is attended to will also be predicted.
+
 </details>
 
 #### $W_{QK}^{h}$
@@ -2296,7 +2305,7 @@ $$
 \end{aligned}
 $$
 
-where $U = U_A U'$, $V = V_B V'$, and $S = S' S_B$.
+where $U = U_A U'$, $V = V_B V'$, and $S = S'$.
 
 All our SVD calculations and matrix multiplications had complexity at most $O(mn^2)$, which is much better than $O(m^3)$ (remember that we don't need to compute all the values of $U = U_A U'$, only the ones which correspond to non-zero singular values).
 </details>
@@ -2434,7 +2443,7 @@ If this still seems confusing, let's break it down bit by bit. We have:
 
 ---
 
-<img src="https://raw.githubusercontent.com/callummcdougall/computational-thread-art/master/example_images/misc/kcomp_diagram_described-OV-last.png" width="400">
+<img src="https://raw.githubusercontent.com/callummcdougall/computational-thread-art/master/example_images/misc/kcomp_diagram_described-OV-end.png" width="400">
 
 </details>
 
@@ -2449,7 +2458,10 @@ You should compute it as a `FactoredMatrix` object.
 Remember, you can access the model's weights directly e.g. using `model.W_E` or `model.W_Q` (the latter gives you all the `W_Q` matrices, indexed by layer and head).
 
 ```python
-# YOUR CODE HERE - compute OV circuit
+layer = 1
+head_index = 4
+
+# YOUR CODE HERE - compte the `full_OV_circuit` object
 
 tests.test_full_OV_circuit(full_OV_circuit, model, layer, head_index)
 ```
@@ -2894,7 +2906,7 @@ def decompose_q(decomposed_qk_input: t.Tensor, ind_head_index: int) -> t.Tensor:
 
     return einops.einsum(
         decomposed_qk_input, W_Q,
-        "n seq d_head, d_head d_model -> n seq d_model"
+        "n seq d_model, d_model d_head -> n seq d_head"
     )
 
 def decompose_k(decomposed_qk_input: t.Tensor, ind_head_index: int) -> t.Tensor:
@@ -2908,7 +2920,7 @@ def decompose_k(decomposed_qk_input: t.Tensor, ind_head_index: int) -> t.Tensor:
 
     return einops.einsum(
         decomposed_qk_input, W_K,
-        "n seq d_head, d_head d_model -> n seq d_model"
+        "n seq d_model, d_model d_head -> n seq d_head"
     )
 ```
 </details>
@@ -3288,7 +3300,7 @@ W_OV = model.W_V @ model.W_O
 # Define tensors to hold the composition scores
 composition_scores = {
     "Q": t.zeros(model.cfg.n_heads, model.cfg.n_heads).to(device),
-    "Κ": t.zeros(model.cfg.n_heads, model.cfg.n_heads).to(device),
+    "K": t.zeros(model.cfg.n_heads, model.cfg.n_heads).to(device),
     "V": t.zeros(model.cfg.n_heads, model.cfg.n_heads).to(device),
 }
 

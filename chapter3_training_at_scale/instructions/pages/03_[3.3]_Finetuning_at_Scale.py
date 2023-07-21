@@ -302,7 +302,7 @@ We will also briefly talk about the Huggingface Trainer object:
 
 The (Trainer)[https://huggingface.co/docs/transformers/main_classes/trainer#trainer] class has three arguments that are essential to starting any training run which are:
 
-1. model - The model that you want to train which could either be a PyTorch model or a pretrained Transformers model. For this exercise we will be using a Transformers model hosted [here](https://huggingface.co/microsoft/resnet-18)
+1. model - The model that you want to train which could either be a PyTorch model or a pretrained Transformers model. For this exercise we will be using a Transformers model hosted [here](https://huggingface.co/bert-base-uncased)
 2. args - The args is an object of the [TrainingArguments](https://huggingface.co/docs/transformers/main_classes/trainer#transformers.TrainingArguments) class that will contain all the hyperparameters the Trainer will use for training and/or evaluation.
 3. train_dataset - The train_dataset is a Huggingface dataset object
 
@@ -397,38 +397,34 @@ def huggingface_train_with_Trainer():
 
 ```python
 
-def huggingface_train_with_Trainer():	
-	#SOLUTION
- 	model = AutoModelForImageClassification.from_pretrained("microsoft/resnet-18")
-  	train_dataset = torchvision.datasets.CIFAR100(root='/data/', download=True, train=True, transform=transform_train)
-
-	training_args = TrainingArguments(
-    			output_dir="./results",
-    			num_train_epochs=100,
-    			per_device_train_batch_size=128,
-    			per_device_eval_batch_size=128,
-    			learning_rate=0.1,
-    			weight_decay=1e-4,
-    			logging_dir="./logs",
-    			logging_steps=100,
-    			evaluation_strategy="epoch",
-    			save_strategy="epoch",
-    			save_total_limit=3,
-    			gradient_accumulation_steps=1,
-		)
-       
- 	# Define the Trainer
-	trainer = Trainer(
-    		model=model,
-    		args=training_args,
-    		train_dataset=train_dataset,
-    		eval_dataset=test_dataset,
-    		data_collator=None,
-    		compute_metrics=None,
-    		optimizers=(torch.optim.SGD(model.parameters(), lr=training_args.learning_rate, momentum=0.9), None),
-		)
-  
-	trainer.train()
+# DeepSpeed requires a distributed environment even when only one process is used.
+# This emulates a launcher in the notebook
+import os
+os.environ["MASTER_ADDR"] = "localhost"
+os.environ["MASTER_PORT"] = "9994"  # modify if RuntimeError: Address already in use
+os.environ["RANK"] = "0"
+os.environ["LOCAL_RANK"] = "0"
+os.environ["WORLD_SIZE"] = "1"
+model = AutoModelForSequenceClassification.from_pretrained(
+        "bert-base-uncased", num_labels=5
+    )
+training_args = TrainingArguments(
+    output_dir="yelp_ds",
+    do_train=True,
+    num_train_epochs=1,
+    evaluation_strategy="epoch"
+    # fill in hyperparameters similar to previous training runs
+)
+training_args.set_training(learning_rate=1e-5, batch_size=8, weight_decay=0.01)
+trainer = Trainer(
+    model=model,
+    args=training_args,
+    train_dataset=small_train_dataset,
+    eval_dataset=small_eval_dataset,
+    compute_metrics=compute_metrics,
+)
+# Now proceed as normal, plus pass the deepspeed config file
+trainer.train()
 ```
 </details>
 

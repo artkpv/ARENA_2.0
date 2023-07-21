@@ -17,6 +17,8 @@ from typing import List, Dict, Union, Callable
 import pickle
 from dataclasses import dataclass
 import time
+import platform
+is_local = (platform.processor() != "")
 tokenizer = tiktoken.get_encoding("cl100k_base")
 
 # Get to chapter0_fundamentals directory (or whatever the chapter dir is)
@@ -24,10 +26,16 @@ import os, sys
 CHAPTER = r"chapter0_fundamentals"
 chapter_dir = r"./" if CHAPTER in os.listdir() else os.getcwd().split(CHAPTER)[0]
 sys.path.append(chapter_dir + CHAPTER)
+instructions_dir = Path(f"{os.getcwd().split(CHAPTER)[0]}/{CHAPTER}/instructions").resolve()
 
-# from exercises.plotly_utils import hist
+if (instructions_dir / ".streamlit/secrets.toml").exists() or not(is_local):
+    openai.api_key = st.secrets["openai_api_key"]
+else:
+    st.error("""Error - no API key found.
 
-openai.api_key = st.secrets["openai_api_key"]
+We detect you are running the page locally, but haven't added the API key yet.
+
+Please follow the instructions on the homepage to run locally & add an API key (you can find this in the left sidebar).""")
 
 SEPARATOR = "\n" + "=" * 30 + "\n"
 
@@ -199,7 +207,7 @@ number of distances = {len(embedding_distances)}
 
 prompt_templates_dict = {
     "SIMPLE": """
-Try to answer the question based on the context below. If the question can't be answered based on the context, say \"I don't know how to answer that based on the context from this course, but I'll still try to answer.\", then answer the question like you normally would.\n\nContext: {context}\n\n---\n\nQuestion: {question}\nAnswer:
+Try to answer the question based on the context below. If the question can't be answered based on the context, say \"I don't know how to answer that based on the context from this course, but I'll still try to answer.\", then answer the question like you normally would.\n\nContext: {context}\n\n---\n\nQuestion: {question} Answer in detail.\nAnswer:
 """,
 
     "COMPLEX": """
@@ -220,7 +228,7 @@ Context:
 {context}
 ---------
 
-Question: {question}
+Question: {question} Answer in detail.
 
 Helpful Answer:
 """
