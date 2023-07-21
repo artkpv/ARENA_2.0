@@ -1,3 +1,6 @@
+# %%
+# [1.6] OthelloGPT
+# https://arena-ch1-transformers.streamlit.app/[1.6]_OthelloGPT
 #%%
 import os
 os.environ["ACCELERATE_DISABLE_RICH"] = "1"
@@ -340,8 +343,9 @@ imshow(
     x=[f"{L} (O)" for L in full_board_labels] + [f"{L} (E)" for L in full_board_labels],
     y=[f"{L} (O)" for L in full_board_labels] + [f"{L} (E)" for L in full_board_labels],
 )
+# %% 
+# Intervening with the probe
 # %%
-# YOUR CODE HERE - define `blank_probe` and `my_probe`
 blank_probe = linear_probe[..., blank_index] - (linear_probe[..., my_index] + linear_probe[..., their_index]) / 2
 my_probe = linear_probe[..., my_index] - linear_probe[..., their_index]
 tests.test_my_probes(blank_probe, my_probe, linear_probe)
@@ -446,6 +450,8 @@ scatter(
 ##########################################
 
 # %%
+# Probing Across Layers
+# %%
 game_index = 1
 move = 20
 layer = 6
@@ -527,6 +533,8 @@ imshow(
     overall_contribution, 
     title=f"Overall Probe Score after Layer {layer} for<br>blank vs non-blank (Game {game_index} Move {move})",
 )
+# %%
+# Reading off neuron weights
 # %%
 # Scale the probes down to be unit norm per cell
 blank_probe_normalised = blank_probe / blank_probe.norm(dim=0, keepdim=True)

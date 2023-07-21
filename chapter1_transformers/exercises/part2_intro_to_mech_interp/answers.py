@@ -50,6 +50,7 @@ if MAIN:
 
 
 # %%
+# 1️⃣ TransformerLens: Introduction
 if MAIN:
     model_description_text = '''## Loading Models
 
@@ -91,6 +92,7 @@ if MAIN:
     pp(gpt2_small.to_str_tokens(tokens[0,1:][correct]))
 
 # %%
+# Caching all Activations
 if MAIN:
     gpt2_text = "Natural language processing tasks, such as question answering, machine translation, reading comprehension, and summarization, are typically approached with supervised learning on taskspecific datasets."
     gpt2_tokens = gpt2_small.to_tokens(gpt2_text)
@@ -103,7 +105,8 @@ if MAIN:
     t.testing.assert_close(attn_patterns_layer_0, attn_patterns_layer_0_copy)
     pp(attn_patterns_layer_0.shape)
     pp(attn_patterns_layer_0_copy.shape)
-# %%
+# %% 
+# Exercise - verify activations
 if MAIN:
     layer0_pattern_from_cache = gpt2_cache["pattern", 0]
     k = gpt2_cache["k", 0]
@@ -119,6 +122,7 @@ if MAIN:
     print("Tests passed!")
 
 # %%
+# Visualising Attention Heads
 if MAIN:
     print(type(gpt2_cache))
     attention_pattern = gpt2_cache["pattern", 0, "attn"]
@@ -501,9 +505,7 @@ if MAIN:
         )
 
 # %%
-#################################
 # Building interpretability tools
-#################################
 # %%
 def logit_attribution(
     embed: Float[Tensor, "seq d_model"],
@@ -593,10 +595,7 @@ if MAIN:
     plot_logit_attribution(model, first_half_logit_attr, first_half_tokens, "Logit attribution (first half of repeated sequence)")
     plot_logit_attribution(model, second_half_logit_attr, second_half_tokens, "Logit attribution (second half of repeated sequence)")
 # %%
-
-###################################
 # Hooks: Intervening on Activations
-###################################
 # %%
 def head_ablation_hook(
     v: Float[Tensor, "batch seq n_heads d_head"],
