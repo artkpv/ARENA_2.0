@@ -15,3 +15,4 @@ from monthly_algorithmic_problems.july23_palindromes.model import create_model
 from plotly_utils import hist, bar, imshow
 
 device = t.device("cuda" if t.cuda.is_available() else "cpu")
+# %%
