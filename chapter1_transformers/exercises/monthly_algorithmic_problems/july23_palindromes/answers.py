@@ -4,6 +4,7 @@ import sys
 import torch as t
 from pathlib import Path
 import einops
+from pprint import pp
 
 # Make sure exercises are in the path
 chapter = r"chapter1_transformers"
@@ -72,4 +73,11 @@ probs_palindrome = probs[:, 1]
 
 for tok, prob in zip(toks, probs_palindrome):
     display_seq(tok, prob)
+# %%
+pp(model)
+pp(f"{model.W_E.shape=}")
+pp(f"{model.blocks[0].attn.W_Q.shape=}")
+pp(f"{model.blocks[0].attn.W_V.shape=}")
+pp(f"{model.blocks[0].attn.W_O.shape=}")
+pp(f"{model.W_U.shape=}")
 # %%
