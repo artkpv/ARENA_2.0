@@ -28,12 +28,13 @@ model = create_model(
     d_head=14,
     n_heads=2,
     normalization_type="LN",
-    d_mlp=None # this is an attn-only model
+    d_mlp=None, # this is an attn-only model
+    device=device
 )
 
-state_dict = t.load(filename)
+state_dict = t.load(filename, map_location=device)
 
-state_dict = model.center_writing_weights(t.load(filename))
+state_dict = model.center_writing_weights(t.load(filename, map_location=device))
 state_dict = model.center_unembed(state_dict)
 state_dict = model.fold_layer_norm(state_dict)
 state_dict = model.fold_value_biases(state_dict)
