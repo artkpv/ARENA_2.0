@@ -3,6 +3,7 @@ import os; os.environ["ACCELERATE_DISABLE_RICH"] = "1"
 import sys
 import torch as t
 from pathlib import Path
+import einops
 
 # Make sure exercises are in the path
 chapter = r"chapter1_transformers"
@@ -38,6 +39,8 @@ state_dict = model.fold_value_biases(state_dict)
 model.load_state_dict(state_dict, strict=False);
 
 # %%
+print("ln_final weight: ", model.ln_final.w)
+print("\nln_final, bias: ", model.ln_final.b)
 W_U_mean_over_input = einops.reduce(model.W_U, "d_model d_vocab -> d_model", "mean")
 t.testing.assert_close(W_U_mean_over_input, t.zeros_like(W_U_mean_over_input))
 
@@ -58,3 +61,15 @@ t.testing.assert_close(W_pos_mean_over_output, t.zeros_like(W_pos_mean_over_outp
 
 b_V = model.b_V
 t.testing.assert_close(b_V, t.zeros_like(b_V))
+# %%
+dataset = PalindromeDataset(size=100, max_value=30, half_length=10)
+
+toks, is_palindrome = dataset[:5]
+
+logits = model(toks)[:, -1]
+probs = logits.softmax(-1)
+probs_palindrome = probs[:, 1]
+
+for tok, prob in zip(toks, probs_palindrome):
+    display_seq(tok, prob)
+# %%
