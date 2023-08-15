@@ -5,6 +5,8 @@ import torch as t
 from pathlib import Path
 import einops
 from pprint import pp
+import circuitsvis as cv
+from IPython.display import display
 
 # Make sure exercises are in the path
 chapter = r"chapter1_transformers"
@@ -64,21 +66,50 @@ t.testing.assert_close(W_pos_mean_over_output, t.zeros_like(W_pos_mean_over_outp
 b_V = model.b_V
 t.testing.assert_close(b_V, t.zeros_like(b_V))
 # %%
-dataset = PalindromeDataset(size=100, max_value=30, half_length=10)
-
-toks, is_palindrome = dataset[:5]
-
-logits = model(toks)[:, -1]
-probs = logits.softmax(-1)
-probs_palindrome = probs[:, 1]
-
-for tok, prob in zip(toks, probs_palindrome):
-    display_seq(tok, prob)
-# %%
 pp(model)
 pp(f"{model.W_E.shape=}")
 pp(f"{model.blocks[0].attn.W_Q.shape=}")
 pp(f"{model.blocks[0].attn.W_V.shape=}")
 pp(f"{model.blocks[0].attn.W_O.shape=}")
 pp(f"{model.W_U.shape=}")
+
+
+# %%
+# %%
+# Run 
+dataset = PalindromeDataset(size=100, max_value=30, half_length=10)
+ds_slice = slice(0,5)
+toks, is_palindrome = dataset[ds_slice]
+
+output, cache = model.run_with_cache(toks, return_type='logits')
+logits = output[:, -1]
+probs = logits.softmax(-1)
+probs_palindrome = probs[:, 1]
+
+# %% 
+# Attention heads
+
+layer = 1
+example_id = 0
+attn_patterns = cache['pattern', layer][example_id]
+str_tokens = dataset.str_toks[ds_slice][example_id]
+#pp(dataset.str_toks[ds_slice])
+pp(attn_patterns.shape)
+display(cv.attention.attention_patterns(
+    str_tokens, # list of strings
+    attention=attn_patterns # tensor of shape (n_heads, seq_len, seq_len),
+))
+
+# %%
+# Logit attribution
+# Calc which attn head contributes most to the final logit.
+
+for tok, prob in zip(toks, probs_palindrome):
+    display_seq(tok, prob)
+
+pp(f'{toks.shape=}')
+pp(f'{output.shape=}')
+pp(f'{logits.shape=}')
+pp(f'{cache=}')
+pp(f'{cache["attn_out", 0].shape=}')
 # %%
