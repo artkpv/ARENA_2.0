@@ -1,8 +1,13 @@
-
 import os, sys
 from pathlib import Path
 chapter = r"chapter1_transformers"
-instructions_dir = Path(f"{os.getcwd().split(chapter)[0]}/{chapter}/instructions").resolve()
+for instructions_dir in [
+    Path(f"{os.getcwd().split(chapter)[0]}/{chapter}/instructions").resolve(),
+    Path("/app/arena_2.0/chapter1_transformers/instructions").resolve(),
+    Path("/mount/src/arena_2.0/chapter1_transformers/instructions").resolve(),
+]:
+    if instructions_dir.exists():
+        break
 if str(instructions_dir) not in sys.path: sys.path.append(str(instructions_dir))
 os.chdir(instructions_dir)
 
@@ -13,6 +18,15 @@ st_dependencies.styling()
 
 import platform
 is_local = (platform.processor() != "")
+
+ANALYTICS_PATH = instructions_dir / "pages/analytics_08.json"
+if not ANALYTICS_PATH.exists():
+    with open(ANALYTICS_PATH, "w") as f:
+        f.write(r"{}")
+import streamlit_analytics
+streamlit_analytics.start_tracking(
+    load_from_json=ANALYTICS_PATH.resolve(),
+)
 
 st.sidebar.markdown(r"""
 
@@ -43,7 +57,7 @@ st.sidebar.markdown(r"""
 </ul></li>""", unsafe_allow_html=True)
 
 st.markdown(r"""
-# [1.∞] Reference Page
+# Reference Page
 
 This page contains links to a bunch of things (blog posts, diagrams, tables) as well as guides and code references, all of which are useful to have at hand when doing this chapter.
 
@@ -81,7 +95,7 @@ This page contains links to a bunch of things (blog posts, diagrams, tables) as 
 
 [Link to excalidraw](https://link.excalidraw.com/l/9KwMnW35Xt8/6PEWgOPSxXH) for the diagram below.
 
-<img src="https://raw.githubusercontent.com/callummcdougall/computational-thread-art/master/example_images/misc/transformer-full-red.png" width="1200">
+<img src="https://raw.githubusercontent.com/callummcdougall/computational-thread-art/master/example_images/misc/transformer-full-updated.png" width="1200">
 
 ## Quick reference
 
@@ -396,3 +410,9 @@ It's important to konw what tools to use in different situations. All have advan
 Your workflow might use all three of these, e.g. working in VSCode using a combination of notebooks for exploratory analysis and Python files for writing functions that you'll import into your notebooks, then finally converting your notebooks to Colabs to publish your results.
 
 """, unsafe_allow_html=True)
+
+
+streamlit_analytics.stop_tracking(
+    unsafe_password=st.secrets["analytics_password"],
+    save_to_json=ANALYTICS_PATH.resolve(),
+)

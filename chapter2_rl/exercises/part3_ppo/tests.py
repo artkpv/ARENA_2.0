@@ -11,23 +11,62 @@ from part2_dqn.utils import set_global_seeds
 device = t.device("cuda" if t.cuda.is_available() else "cpu")
 Arr = np.ndarray
 
-from part1_intro_to_rl.utils import make_env
+from part3_ppo.utils import make_env
 # import part3_ppo.solutions as solutions
 
-def test_get_actor_and_critic(get_actor_and_critic):
-    import part3_ppo.solutions as solutions
-    envs = gym.vector.SyncVectorEnv([make_env("CartPole-v1", i, i, False, "test-run") for i in range(4)])
-    actor, critic = get_actor_and_critic(envs)
-    actor_soln, critic_soln = solutions.get_actor_and_critic(envs)
-    assert sum(p.numel() for p in actor.parameters()) == sum(p.numel() for p in actor_soln.parameters()) # 4610
-    assert sum(p.numel() for p in critic.parameters()) == sum(p.numel() for p in critic_soln.parameters()) # 4545
-    for name, param in actor.named_parameters():
-        if "bias" in name:
-            t.testing.assert_close(param.pow(2).sum().cpu(), t.tensor(0.0))
-    for name, param in critic.named_parameters():
-        if "bias" in name:
-            t.testing.assert_close(param.pow(2).sum().cpu(), t.tensor(0.0))
-    print("All tests in `test_agent` passed!")
+def test_get_actor_and_critic(get_actor_and_critic, mode="classic-control"):
+    if mode == "atari":
+        num_envs = 6
+        envs = gym.vector.SyncVectorEnv([make_env("ALE/Breakout-v5", i, i, False, "", mode="atari") for i in range(num_envs)])
+        num_actions = envs.single_action_space.n
+        actor, critic = get_actor_and_critic(envs, mode="atari")
+        actor = actor.to(device)
+        critic = critic.to(device)
+        obs = t.tensor(envs.reset(), device=device, dtype=t.float32)
+        with t.inference_mode():
+            action = actor(obs)
+            value = critic(obs)
+        assert action.shape == (num_envs, num_actions), f"action.shape = {action.shape}"
+        assert value.shape == (num_envs, 1), f"value.shape = {value.shape}"
+
+    elif mode == "classic-control":
+        import part3_ppo.solutions as solutions
+        envs = gym.vector.SyncVectorEnv([make_env("CartPole-v1", i, i, False, "test-run") for i in range(4)])
+        actor, critic = get_actor_and_critic(envs, mode="classic-control")
+        actor = actor.to(device)
+        critic = critic.to(device)
+        actor_soln, critic_soln = solutions.get_actor_and_critic(envs)
+        actor_soln = actor_soln.to(device)
+        critic_soln = critic_soln.to(device)
+        assert sum(p.numel() for p in actor.parameters()) == sum(p.numel() for p in actor_soln.parameters()) # 4610
+        assert sum(p.numel() for p in critic.parameters()) == sum(p.numel() for p in critic_soln.parameters()) # 4545
+        for name, param in actor.named_parameters():
+            if "bias" in name:
+                t.testing.assert_close(param.pow(2).sum().cpu(), t.tensor(0.0))
+        for name, param in critic.named_parameters():
+            if "bias" in name:
+                t.testing.assert_close(param.pow(2).sum().cpu(), t.tensor(0.0))
+
+    elif mode == "mujoco":
+        import part3_ppo.solutions as solutions
+        envs = gym.vector.SyncVectorEnv([make_env("Hopper-v3", i, i, False, "test-run") for i in range(4)])
+        actor, critic = get_actor_and_critic(envs, mode="mujoco")
+        actor = actor.to(device)
+        critic = critic.to(device)
+        actor_soln, critic_soln = solutions.get_actor_and_critic(envs)
+        actor_soln = actor_soln.to(device)
+        critic_soln = critic_soln.to(device)
+        assert sum(p.numel() for p in critic.parameters()) == sum(p.numel() for p in critic_soln.parameters()) # 4545
+        assert sum(p.numel() for p in actor.actor_mu.parameters()) == sum(p.numel() for p in actor_soln.parameters()) # 4610
+        for name, param in actor.named_parameters():
+            if "bias" in name:
+                t.testing.assert_close(param.pow(2).sum().cpu(), t.tensor(0.0))
+        for name, param in critic.named_parameters():
+            if "bias" in name:
+                t.testing.assert_close(param.pow(2).sum().cpu(), t.tensor(0.0))
+
+    print("All tests in `test_get_actor_and_critic` passed!")
+
 
 def test_minibatch_indexes(minibatch_indexes):
     rng = np.random.default_rng(0)
@@ -114,6 +153,7 @@ def test_calc_clipped_surrogate_objective(calc_clipped_surrogate_objective):
     mb_action = t.randint(0, num_actions, (minibatch,))
     mb_advantages = t.randn((minibatch,))
     mb_logprobs = t.randn((minibatch,))
+    mb_logprobs[mb_logprobs > 0] = mb_logprobs[mb_logprobs > 0] * -1 # all logprobs should be negative
     clip_coef = 0.01
     expected = solutions.calc_clipped_surrogate_objective(probs, mb_action, mb_advantages, mb_logprobs, clip_coef)
     actual = calc_clipped_surrogate_objective(probs, mb_action, mb_advantages, mb_logprobs, clip_coef)
@@ -134,7 +174,7 @@ def test_calc_value_function_loss(calc_value_function_loss):
         expected = solutions.calc_value_function_loss(values, mb_returns, vf_coef)
         actual = calc_value_function_loss(values, mb_returns, vf_coef)
     if ((actual - expected).abs() > 1e-4) and (0.5*actual - expected).abs() < 1e-4:
-        raise Exception("Your result was half the expected value. Did you forget to use a factor of 1/2 in the mean squared difference, or the `vf_coef`?")
+        raise Exception("Your result was twice the expected value. Did you forget to use a factor of 1/2 in the mean squared difference, or the `vf_coef`?")
     t.testing.assert_close(actual, expected)
     print("All tests in `test_calc_value_function_loss` passed!")
 

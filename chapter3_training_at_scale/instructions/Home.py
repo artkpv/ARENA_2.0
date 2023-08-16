@@ -32,6 +32,7 @@ st.sidebar.markdown(r"""
     <li class="margtop"><ul class="contents">
         <li><a class="contents-el" href="#option-1-vscode">Option 1: VSCode</a></li>
         <li><a class="contents-el" href="#option-2-colab">Option 2: Colab</a></li>
+        <li><a class="contents-el" href="#running-the-page-locally">Running the page locally</a></li>
         <li><a class="contents-el" href="#chatbot-assistant">Chatbot assistant</a></li>
     </ul></li>
     <li class="margtop"><a class="contents-el" href="#hints">Hints</a></li>
@@ -55,7 +56,13 @@ Some highlights from this chapter include:
 * Quantizing your model to INT8 for blazing fast inference
 * Implementing distributed training loops using `torch.dist`
 * Getting hands on with Huggingface Accelerate and Microsoft DeepsSpeed
-
+""", unsafe_allow_html=True)
+    
+    st.error(r"""
+Note - this section will be updated significantly with new content, some time in the coming month. I currently expect the new content to be released by Friday 28th July (current date as of writing this message is 6th July).
+""")
+    
+    st.markdown(r"""
 ---
 
 ## About this page
@@ -282,13 +289,31 @@ This option is recommended if either of the following is true:
 
 Colab links are coming soon (will probably be available by some point in the first week of July).
 
+### Running the page locally
+
+Rather than accessing this page via url, you can run it locally on your machine. To do this, take the following steps:
+
+* Clone the main [ARENA GitHub repo](https://github.com/callummcdougall/ARENA_2.0)
+* Make sure streamlit is installed (`pip install streamlit`)
+* Navigate to the `chapter3_training_at_scale/instructions` folder and run `streamlit run Home.py`.
+
+This should open a page in your browser that looks like the one you're currently viewing.
+
 ### Chatbot assistant
 
 We've created an experimental chatbot assistant to help you answer questions about the material. It performs a low-dimensional embedding of any questions that it is asked, then assembles context from the curriculum by choosing blocks of content with an embedding that has high cosine similarity of the question's embedding. This was inspired by [AlignmentSearch](https://www.lesswrong.com/posts/bGn9ZjeuJCg7HkKBj/introducing-alignmentsearch-an-ai-alignment-informed), and has similar benefits and drawbacks relative to the alternative of using GPT directly.
 
 You can see example questions to ask the chatbot if you navigate to the chatbot page.
 
-This feature is very experimental, so please [let me know](mailto:cal.s.mcdougall@gmail.com) if you have any feedback!
+If you run the page locally and add your own OpenAI API key, you can also get access to the GPT-4 version of the chatbot (rather than just the 3.5 or davinci versions). 
+
+To run the page locally, see the previous section. To add your own API key, take the following steps:
+
+* Go to the [OpenAI API keys page](https://platform.openai.com/account/api-keys), to generate your own API key.
+* Create a file called `secrets.toml` which looks like `openai_api_key = "sk-<rest-of-your-key>"`. Save it as `chapter3_training_at_scale/instructions/.streamlit/secrets.toml`.
+* Run the page like normally, and the chatbot feature should be enabled.
+
+This feature is very experimental, so please [let us know](mailto:cal.s.mcdougall@gmail.com) if you have any feedback!
 
 ## Hints
 

@@ -1,12 +1,18 @@
 {
-    "python.testing.pytestArgs": [
-        "."
-    ],
-    "python.testing.unittestEnabled": false,
-    "python.testing.pytestEnabled": true,
+    // "folders": [
+    //     {
+    //         "path": "C:/Users/calsm/Documents/AI Alignment/ARENA_2", 
+    //         "name": "ARENA"
+    //     }
+    // ]
+    // "python.testing.pytestArgs": [
+    //     "chapter0_fundamentals"
+    // ],
+    // "python.testing.unittestEnabled": false,
+    // "python.testing.pytestEnabled": true,
     "python.analysis.extraPaths": [
-        // "${workspaceFolder}/chapter0_fundamentals",
-        // "${workspaceFolder}/chapter0_fundamentals/exercises",
+        "${workspaceFolder}/chapter0_fundamentals",
+        "${workspaceFolder}/chapter0_fundamentals/exercises",
         // "${workspaceFolder}/chapter1_transformers",
         // "${workspaceFolder}/chapter1_transformers/exercises",
         // "${workspaceFolder}/chapter1_transformers/exercises/part6_othellogpt/othello_world/mechanistic_interpretability",

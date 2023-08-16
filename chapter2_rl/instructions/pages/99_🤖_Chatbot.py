@@ -6,6 +6,7 @@ import pickle
 import sys
 import platform
 from pathlib import Path
+import openai
 import st_dependencies
 st.set_page_config(layout="wide", page_icon="🔬")
 
@@ -24,6 +25,16 @@ sys.path.append(str(root_path.parent))
 
 from chatbot import answer_question, Embedding, EmbeddingGroup
 
+ANALYTICS_PATH = root_path / "pages/analytics_99.json"
+if not ANALYTICS_PATH.exists():
+    with open(ANALYTICS_PATH, "w") as f:
+        f.write(r"{}")
+import streamlit_analytics
+streamlit_analytics.start_tracking(
+    load_from_json=ANALYTICS_PATH.resolve(),
+)
+
+
 files = (root_path / "pages").glob("*.py")
 names = [f.stem for f in files if f.stem[0].isdigit() and "Chatbot" not in f.stem]
 names = [name.split("]")[1].replace("_", " ").strip() for name in names]
@@ -38,6 +49,9 @@ if "my_embeddings" not in st.session_state:
         st.session_state["my_embeddings"] = pickle.load(f)
 if "history" not in st.session_state:
     st.session_state["history"] = []
+
+# if not is_local:
+#     st.info("Note - to have access to the GPT-4 chatbot, you need to run this page locally and enter your own API key. See the instructions in 'Home' for more details.")
 
 # %%
 
@@ -56,7 +70,10 @@ You can configure the chatbot with the settings on the right hand side:
 
 tabs = st.tabs(["*(instructions)*", "Video demo", "Example #1", "Example #2", "Example #3"])
 with tabs[0]:
-    st.markdown("Click through the tabs above to see examples of the chatbot in action.")
+    st.markdown(
+"""
+Click through the tabs above to see examples of the chatbot in action.
+""")
 with tabs[1]:
     st.markdown(r"""<video width="700" controls><source src="https://raw.githubusercontent.com/callummcdougall/computational-thread-art/master/example_images/misc/chatbot_demo_small.mp4" type="video/mp4"></video>""", unsafe_allow_html=True)
 with tabs[2]:
@@ -84,8 +101,8 @@ with st.sidebar:
 
     model = st.radio(
         "Model",
-        options = ["gpt-4", "gpt-3.5-turbo", "text-davinci-003"],
-        index = 1
+        options = ["gpt-4", "gpt-3.5-turbo", "text-davinci-003"], # if is_local else ["gpt-3.5-turbo", "text-davinci-003"],
+        index = 1, # if is_local else 0,
     )
 
     temp = st.slider(
@@ -141,17 +158,24 @@ if question and (not st.session_state["suppress_output"]):
         if len(my_embeddings) == 0:
             st.error("Warning - your filters are excluding all content from the chatbot's context window.")
             # st.stop()
-        response = answer_question(
-            my_embeddings=my_embeddings, 
-            question=question, 
-            prompt_template="SIMPLE", # "SOURCES", "COMPLEX"
-            model=model,
-            debug=False,
-            temperature=temp,
-            container=response_container,
-            max_len=1500, # max content length
-            max_tokens=1500,
-        )
+        try:
+            response = answer_question(
+                my_embeddings=my_embeddings, 
+                question=question, 
+                prompt_template="SIMPLE", # "SOURCES", "COMPLEX"
+                model=model,
+                debug=False,
+                temperature=temp,
+                container=response_container,
+                max_len=1500, # max content length
+                max_tokens=1500,
+            )
+        except openai.error.AuthenticationError:
+            st.error("""Error - no API key found.
+
+Either you're on the public page, or you're running it locally but you haven't added the API key yet.
+
+Please follow the instructions on the homepage to run locally & add an API key (you can find this in the left sidebar).""")
 else:
     st.session_state["suppress_output"] = False
 
@@ -159,3 +183,8 @@ else:
 # block signature
 
 # %%
+
+streamlit_analytics.stop_tracking(
+    unsafe_password=st.secrets["analytics_password"],
+    save_to_json=ANALYTICS_PATH.resolve(),
+)

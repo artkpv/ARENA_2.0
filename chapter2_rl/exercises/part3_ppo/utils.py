@@ -2,11 +2,9 @@
 import gym
 import numpy as np
 from typing import List
-import argparse
-import os
 import random
 import torch as t
-from typing import Optional
+from typing import Optional, Literal
 from dataclasses import dataclass
 import pandas as pd
 from IPython.display import display
@@ -16,9 +14,26 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from einops import rearrange
 
+from part3_ppo.atari_wrappers import (
+    NoopResetEnv,
+    MaxAndSkipEnv,
+    EpisodicLifeEnv,
+    FireResetEnv, # only if "FIRE" is in env.unwrapped.get_action_meanings()
+    ClipRewardEnv,
+)
+from gym.wrappers import (
+    FrameStack,
+    ResizeObservation,
+    GrayScaleObservation,
+)
+
 # %%
-def make_env(env_id: str, seed: int, idx: int, capture_video: bool, run_name: str):
+
+
+def make_env(env_id: str, seed: int, idx: int, capture_video: bool, run_name: str, mode: str = "classic-control"):
     """Return a function that returns an environment after setting up boilerplate."""
+
+    step_trigger = 20_000 if (mode == "mujoco") else 10_000
     
     def thunk():
         env = gym.make(env_id)
@@ -28,8 +43,14 @@ def make_env(env_id: str, seed: int, idx: int, capture_video: bool, run_name: st
                 env = gym.wrappers.RecordVideo(
                     env, 
                     f"videos/{run_name}", 
-                    step_trigger=lambda x : x % 5000 == 0 # Video every 5000 steps for env #1
+                    step_trigger=lambda x : x % step_trigger == 0
                 )
+
+        if mode == "atari":
+            env = prepare_atari_env(env)
+        elif mode == "mujoco":
+            env = prepare_mujoco_env(env)
+        
         obs = env.reset(seed=seed)
         env.action_space.seed(seed)
         env.observation_space.seed(seed)
@@ -37,10 +58,34 @@ def make_env(env_id: str, seed: int, idx: int, capture_video: bool, run_name: st
     
     return thunk
 
+
+def prepare_atari_env(env: gym.Env):
+    env = NoopResetEnv(env, noop_max=30)
+    env = MaxAndSkipEnv(env, skip=4)
+    env = EpisodicLifeEnv(env)
+    if "FIRE" in env.unwrapped.get_action_meanings():
+        env = FireResetEnv(env)
+    env = ClipRewardEnv(env)
+    env = ResizeObservation(env, shape=(84, 84))
+    env = GrayScaleObservation(env)
+    env = FrameStack(env, num_stack=4)
+    return env
+
+
+def prepare_mujoco_env(env: gym.Env):
+    env = gym.wrappers.ClipAction(env)
+    env = gym.wrappers.NormalizeObservation(env)
+    env = gym.wrappers.TransformObservation(env, lambda obs: np.clip(obs, -10, 10))
+    env = gym.wrappers.NormalizeReward(env)
+    env = gym.wrappers.TransformReward(env, lambda reward: np.clip(reward, -10, 10))
+    return env
+
+
 def set_seed(seed):
     random.seed(seed)
     np.random.seed(seed)
     t.manual_seed(seed)
+
 
 def window_avg(arr: Arr, window: int):
     """
@@ -96,29 +141,35 @@ def sum_rewards(rewards : List[int], gamma : float = 1):
 
 @dataclass
 class PPOArgs:
-    exp_name: str = "PPO_Implementation"
-    seed: int = 1
-    cuda: bool = t.cuda.is_available()
-    log_dir: str = "logs"
-    use_wandb: bool = False
-    wandb_project_name: str = "PPOCart"
-    wandb_entity: str = None
-    capture_video: bool = True
-    env_id: str = "CartPole-v1"
-    total_timesteps: int = 500000
-    learning_rate: float = 0.00025
-    num_envs: int = 4
-    num_steps: int = 128
-    gamma: float = 0.99
-    gae_lambda: float = 0.95
-    num_minibatches: int = 4
-    batches_per_epoch: int = 4
-    clip_coef: float = 0.2
-    ent_coef: float = 0.01
-    vf_coef: float = 0.5
-    max_grad_norm: float = 0.5
-    batch_size: int = 512
-    minibatch_size: int = 128
+	exp_name: str = "PPO_Implementation"
+	seed: int = 1
+	cuda: bool = t.cuda.is_available()
+	log_dir: str = "logs"
+	use_wandb: bool = False
+	wandb_project_name: str = "PPOCart"
+	wandb_entity: str = None
+	capture_video: bool = True
+	env_id: str = "CartPole-v1"
+	total_timesteps: int = 500000
+	learning_rate: float = 0.00025
+	num_envs: int = 4
+	num_steps: int = 128
+	gamma: float = 0.99
+	gae_lambda: float = 0.95
+	num_minibatches: int = 4
+	batches_per_epoch: int = 4
+	clip_coef: float = 0.2
+	ent_coef: float = 0.01
+	vf_coef: float = 0.5
+	max_grad_norm: float = 0.5
+	mode: Literal["classic-control", "atari", "mujoco"] = "classic-control"
+
+	def __post_init__(self):
+		self.batch_size = self.num_steps * self.num_envs
+		assert self.batch_size % self.num_minibatches == 0, "batch_size must be divisible by num_minibatches"
+		self.minibatch_size = self.batch_size // self.num_minibatches
+		self.total_epochs = self.total_timesteps // self.batch_size
+		self.total_training_steps = self.total_epochs * self.batches_per_epoch * self.num_minibatches
 
 arg_help_strings = dict(
     exp_name = "the name of this experiment",
@@ -132,17 +183,21 @@ arg_help_strings = dict(
     env_id = "the id of the environment",
     total_timesteps = "total timesteps of the experiments",
     learning_rate = "the learning rate of the optimizer",
-    num_envs = "number of synchronized vector environments in our `envs` object",
-    num_steps = "number of steps taken in the rollout phase",
+    num_envs = "number of synchronized vector environments in our `envs` object (this is N in the '37 Implementational Details' post)",
+    num_steps = "number of steps taken in the rollout phase (this is M in the '37 Implementational Details' post)",
     gamma = "the discount factor gamma",
     gae_lambda = "the discount factor used in our GAE estimation",
-    batches_per_epoch = "how many times you loop through the data generated in rollout",
+    num_minibatches = "the number of minibatches you divide each batch up into",
+    batches_per_epoch = "how many times you loop through the data generated in each rollout phase",
     clip_coef = "the epsilon term used in the clipped surrogate objective function",
     ent_coef = "coefficient of entropy bonus term",
     vf_coef = "cofficient of value loss function",
     max_grad_norm = "value used in gradient clipping",
-    batch_size = "number of random samples we take from the rollout data",
-    minibatch_size = "size of each minibatch we perform a gradient step on",
+    mode = "can be 'classic-control', 'atari' or 'mujoco'",
+    batch_size = "N * M in the '37 Implementational Details' post (calculated from other values in PPOArgs)",
+    minibatch_size = "the size of a single minibatch we perform a gradient step on (calculated from other values in PPOArgs)",
+    total_epochs = "total number of epochs during training (calculated from other values in PPOArgs)",
+    total_training_steps = "total number of minibatches we will perform an update step on during training (calculated from other values in PPOArgs)",
 )
 
 def arg_help(args: Optional[PPOArgs], print_df=False):

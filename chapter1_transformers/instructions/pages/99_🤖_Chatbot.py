@@ -6,37 +6,70 @@ import pickle
 import sys
 import platform
 from pathlib import Path
+import openai
 import st_dependencies
 st.set_page_config(layout="wide", page_icon="🔬")
 
 is_local = (platform.processor() != "")
 
 # Get to the right directory: the streamlit one (not pages)
-# Get to chapter0_fundamentals directory (or whatever the chapter dir is)
+# Get to chapter1_transformers directory (or whatever the chapter dir is)
 
-# Navigate to the root directory, i.e. ARENA_2 for me, or the working directory for people locally
-while "chapter" in os.getcwd():
-    os.chdir("..")
-# Now with this reference point, we can add things to sys.path
-root_path = (Path.cwd() / "chapter0_fundamentals" / "instructions").resolve()
-sys.path.append(str(root_path))
-sys.path.append(str(root_path.parent))
+import os, sys
+from pathlib import Path
+chapter = r"chapter1_transformers"
+for instructions_dir in [
+    Path(f"{os.getcwd().split(chapter)[0]}/{chapter}/instructions").resolve(),
+    Path("/app/arena_2.0/chapter1_transformers/instructions").resolve(),
+    Path("/mount/src/arena_2.0/chapter1_transformers/instructions").resolve(),
+]:
+    if instructions_dir.exists():
+        break
+else:
+    # raise error in streamlit
+    st.error(f"Path error - please contact author at `cal.s.mcdougall@gmail.com`.")
+    st.stop()
+
+if str(instructions_dir) not in sys.path: sys.path.append(str(instructions_dir))
+os.chdir(instructions_dir)
+
+ANALYTICS_PATH = instructions_dir / "pages/analytics_99.json"
+if not ANALYTICS_PATH.exists():
+    with open(ANALYTICS_PATH, "w") as f:
+        f.write(r"{}")
+import streamlit_analytics
+streamlit_analytics.start_tracking(
+    load_from_json=ANALYTICS_PATH.resolve(),
+)
 
 from chatbot import answer_question, Embedding, EmbeddingGroup
 
-files = (root_path / "pages").glob("*.py")
-names = [f.stem for f in files if f.stem[0].isdigit() and "Chatbot" not in f.stem]
-names = [name.split("]")[1].replace("_", " ").strip() for name in names]
-# names are ["Ray Tracing", "CNNs", "Backprop", "ResNets", "Optimization"]
+files = (instructions_dir / "pages").glob("*.py")
+names = [
+    f.stem for f in files 
+    if f.stem[:2].isdigit() and int(f.stem[:2]) <= 10
+]
+names = [
+    (name.split("]")[1] if "]" in name else name[3:]).replace("_", " ").strip()
+    for name in names
+]
+
+
 
 # %%
 
 if "my_embeddings" not in st.session_state:
-    path = root_path / "my_embeddings.pkl"
+    path = instructions_dir / "my_embeddings.pkl"
     with open(str(path), "rb") as f:
-        st.session_state["my_embeddings"] = pickle.load(f)
+        try:
+            st.session_state["my_embeddings"] = pickle.load(f)
+        except:
+            st.write(path.resolve())
 if "history" not in st.session_state:
     st.session_state["history"] = []
+
+# if not is_local:
+#     st.info("Note - to have access to the GPT-4 chatbot, you need to run this page locally and enter your own API key. See the instructions in 'Home' for more details.")
 
 # %%
 
@@ -55,7 +88,10 @@ You can configure the chatbot with the settings on the right hand side:
 
 tabs = st.tabs(["*(instructions)*", "Video demo", "Example #1", "Example #2", "Example #3"])
 with tabs[0]:
-    st.markdown("Click through the tabs above to see examples of the chatbot in action.")
+    st.markdown(
+"""
+Click through the tabs above to see examples of the chatbot in action.
+""")
 with tabs[1]:
     st.markdown(r"""<video width="700" controls><source src="https://raw.githubusercontent.com/callummcdougall/computational-thread-art/master/example_images/misc/chatbot_demo_small.mp4" type="video/mp4"></video>""", unsafe_allow_html=True)
 with tabs[2]:
@@ -83,8 +119,8 @@ with st.sidebar:
 
     model = st.radio(
         "Model",
-        options = ["gpt-4", "gpt-3.5-turbo", "text-davinci-003"],
-        index = 1
+        options = ["gpt-4", "gpt-3.5-turbo", "text-davinci-003"], # if is_local else ["gpt-3.5-turbo", "text-davinci-003"],
+        index = 1, # if is_local else 0,
     )
 
     temp = st.slider(
@@ -140,17 +176,24 @@ if question and (not st.session_state["suppress_output"]):
         if len(my_embeddings) == 0:
             st.error("Warning - your filters are excluding all content from the chatbot's context window.")
             # st.stop()
-        response = answer_question(
-            my_embeddings=my_embeddings, 
-            question=question, 
-            prompt_template="SIMPLE", # "SOURCES", "COMPLEX"
-            model=model,
-            debug=False,
-            temperature=temp,
-            container=response_container,
-            max_len=1500, # max content length
-            max_tokens=1500,
-        )
+        try:
+            response = answer_question(
+                my_embeddings=my_embeddings, 
+                question=question, 
+                prompt_template="SIMPLE", # "SOURCES", "COMPLEX"
+                model=model,
+                debug=False,
+                temperature=temp,
+                container=response_container,
+                max_len=1500, # max content length
+                max_tokens=1500,
+            )
+        except openai.error.AuthenticationError:
+            st.error("""Error - no API key found.
+
+Either you're on the public page, or you're running it locally but you haven't added the API key yet.
+
+Please follow the instructions on the homepage to run locally & add an API key (you can find this in the left sidebar).""")
 else:
     st.session_state["suppress_output"] = False
 
@@ -158,3 +201,8 @@ else:
 # block signature
 
 # %%
+
+streamlit_analytics.stop_tracking(
+    unsafe_password=st.secrets["analytics_password"],
+    save_to_json=ANALYTICS_PATH.resolve(),
+)
