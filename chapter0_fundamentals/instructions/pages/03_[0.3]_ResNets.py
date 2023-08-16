@@ -14,6 +14,15 @@ st_dependencies.styling()
 import platform
 is_local = (platform.processor() != "")
 
+ANALYTICS_PATH = instructions_dir / "pages/analytics_03.json"
+if not ANALYTICS_PATH.exists():
+    with open(ANALYTICS_PATH, "w") as f:
+        f.write(r"{}")
+import streamlit_analytics
+streamlit_analytics.start_tracking(
+    load_from_json=ANALYTICS_PATH.resolve(),
+)
+
 def section_0():
 
     st.sidebar.markdown(r"""
@@ -24,9 +33,9 @@ def section_0():
     <li class='margtop'><a class='contents-el' href='#introduction'>Introduction</a></li>
     <li class='margtop'><a class='contents-el' href='#content-learning-objectives'>Content & Learning Objectives</a></li>
     <li><ul class="contents">
-        <li><a class='contents-el' href='#110125-building-training-a-cnn'>1️⃣ Building & training a CNN</a></li>
-        <li><a class='contents-el' href='#1010125-assembling-resnet'>2️⃣ Assembling ResNet</a></li>
-        <li><a class='contents-el' href='#12510125-resnet-feature-extraction'>3️⃣ ResNet feature extraction</a></li>
+        <li><a class='contents-el' href='#1-building-training-a-cnn'>1️⃣ Building & training a CNN</a></li>
+        <li><a class='contents-el' href='#2-assembling-resnet'>2️⃣ Assembling ResNet</a></li>
+        <li><a class='contents-el' href='#3-resnet-feature-extraction'>3️⃣ ResNet feature extraction</a></li>
     </ul></li>
     <li class='margtop'><a class='contents-el' href='#setup'>Setup</a></li>
 </ul></li>""", unsafe_allow_html=True)
@@ -109,8 +118,6 @@ import torchinfo
 import json
 import pandas as pd
 from jaxtyping import Float, Int
-import pytorch_lightning as pl
-from pytorch_lightning.loggers import CSVLogger
 
 # Make sure exercises are in the path
 chapter = r"chapter0_fundamentals"
@@ -758,7 +765,7 @@ Importance: 🟠🟠🟠🟠🟠
 
 You should spend up to ~20 minutes on this exercise.
 
-It is very important that you understand PyTorch Lightning training loops and how they work, because we'll be doing a lot of model training with this library.
+It is very important that you understand training loops and how they work, because we'll be doing a lot of model training in this way.
 ```
 
 Edit the `ConvNetTrainer` class above to include a validation loop. Train your model, then plot the accuracy using the function we've given you below.
@@ -1933,7 +1940,7 @@ def section_3():
 > * Perform feature extraction on a pre-trained ResNet
 
 
-Now that you've seen how to build a training loop using PyTorch lightning, and you've seen how ResNet works and is built, we're going to put these two things together to finetune a ResNet model on a new dataset.
+Now that you've seen how to build a modular training loop, and you've seen how ResNet works and is built, we're going to put these two things together to finetune a ResNet model on a new dataset.
 
 **Finetuning** can mean slightly different things in different contexts, but broadly speaking it means using the weights of an already trained network as the starting values for training a new network. Because training networks from scratch is very computationally expensive, this is a common practice in ML.
 
@@ -2163,3 +2170,9 @@ def page():
     func()
 
 page()
+
+
+streamlit_analytics.stop_tracking(
+    unsafe_password=st.secrets["analytics_password"],
+    save_to_json=ANALYTICS_PATH.resolve(),
+)

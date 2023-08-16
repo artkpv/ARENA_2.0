@@ -25,22 +25,46 @@ for instructions_dir in [
 ]:
     if instructions_dir.exists():
         break
+else:
+    # raise error in streamlit
+    st.error(f"Path error - please contact author at `cal.s.mcdougall@gmail.com`.")
+    st.stop()
+
 if str(instructions_dir) not in sys.path: sys.path.append(str(instructions_dir))
 os.chdir(instructions_dir)
+
+ANALYTICS_PATH = instructions_dir / "pages/analytics_99.json"
+if not ANALYTICS_PATH.exists():
+    with open(ANALYTICS_PATH, "w") as f:
+        f.write(r"{}")
+import streamlit_analytics
+streamlit_analytics.start_tracking(
+    load_from_json=ANALYTICS_PATH.resolve(),
+)
 
 from chatbot import answer_question, Embedding, EmbeddingGroup
 
 files = (instructions_dir / "pages").glob("*.py")
-names = [f.stem for f in files if f.stem[0].isdigit() and "Chatbot" not in f.stem and "]" in f.stem]
-names = [name.split("]")[1].replace("_", " ").strip() for name in names]
-# names are ["Ray Tracing", "CNNs", "Backprop", "ResNets", "Optimization"]
+names = [
+    f.stem for f in files 
+    if f.stem[:2].isdigit() and int(f.stem[:2]) <= 10
+]
+names = [
+    (name.split("]")[1] if "]" in name else name[3:]).replace("_", " ").strip()
+    for name in names
+]
+
+
 
 # %%
 
 if "my_embeddings" not in st.session_state:
     path = instructions_dir / "my_embeddings.pkl"
     with open(str(path), "rb") as f:
-        st.session_state["my_embeddings"] = pickle.load(f)
+        try:
+            st.session_state["my_embeddings"] = pickle.load(f)
+        except:
+            st.write(path.resolve())
 if "history" not in st.session_state:
     st.session_state["history"] = []
 
@@ -177,3 +201,8 @@ else:
 # block signature
 
 # %%
+
+streamlit_analytics.stop_tracking(
+    unsafe_password=st.secrets["analytics_password"],
+    save_to_json=ANALYTICS_PATH.resolve(),
+)

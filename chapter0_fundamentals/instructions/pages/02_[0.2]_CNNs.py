@@ -14,6 +14,15 @@ st_dependencies.styling()
 import platform
 is_local = (platform.processor() != "")
 
+ANALYTICS_PATH = instructions_dir / "pages/analytics_02.json"
+if not ANALYTICS_PATH.exists():
+    with open(ANALYTICS_PATH, "w") as f:
+        f.write(r"{}")
+import streamlit_analytics
+streamlit_analytics.start_tracking(
+    load_from_json=ANALYTICS_PATH.resolve(),
+)
+
 def section_0():
 
     st.sidebar.markdown(r"""
@@ -24,10 +33,10 @@ def section_0():
     <li class='margtop'><a class='contents-el' href='#introduction'>Introduction</a></li>
     <li class='margtop'><a class='contents-el' href='#content-learning-objectives'>Content & Learning Objectives</a></li>
     <li><ul class="contents">
-        <li><a class='contents-el' href='#110125-einops-and-einsum'>1️⃣ Einops and Einsum</a></li>
-        <li><a class='contents-el' href='#1010125-array-strides'>2️⃣ Array strides</a></li>
-        <li><a class='contents-el' href='#12510125-convolutions'>3️⃣ Convolutions</a></li>
-        <li><a class='contents-el' href='#1010125-making-your-own-modules'>4️⃣ Making your own modules</a></li>
+        <li><a class='contents-el' href='#1-einops-and-einsum'>1️⃣ Einops and Einsum</a></li>
+        <li><a class='contents-el' href='#2-array-strides'>2️⃣ Array strides</a></li>
+        <li><a class='contents-el' href='#3-convolutions'>3️⃣ Convolutions</a></li>
+        <li><a class='contents-el' href='#4-making-your-own-modules'>4️⃣ Making your own modules</a></li>
     </ul></li>
     <li class='margtop'><a class='contents-el' href='#setup'>Setup</a></li>
 </ul></li>""", unsafe_allow_html=True)
@@ -45,12 +54,7 @@ You can toggle dark mode from the buttons on the top-right of this page.
 
 <img src="https://raw.githubusercontent.com/callummcdougall/Fundamentals/main/images/cnn.png" width="350">
 
-
-
-
-
 ## Introduction
-
 
 This section is designed to get you familiar with basic neural networks: how they are structured, the basic operations like linear layers and convolutions which go into making them, and why they work as well as they do. You'll be using libraries like `einops`, and functions like `torch.as_strided` to get a very low-level picture of how these operations work, which will help build up your overall understanding.
 
@@ -2724,3 +2728,9 @@ def page():
     func()
 
 page()
+
+
+streamlit_analytics.stop_tracking(
+    unsafe_password=st.secrets["analytics_password"],
+    save_to_json=ANALYTICS_PATH.resolve(),
+)

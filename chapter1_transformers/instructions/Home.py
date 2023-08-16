@@ -23,6 +23,13 @@ if os.getcwd().endswith("chapter1_transformers") and "./instructions" not in sys
 if os.getcwd().endswith("pages") and "../" not in sys.path:
     sys.path.append("../")
 
+ANALYTICS_PATH = root_path / "pages/analytics.json"
+import streamlit_analytics
+streamlit_analytics.start_tracking(
+    verbose=True,
+    load_from_json=ANALYTICS_PATH.resolve(),
+)
+
 st.sidebar.markdown(r"""
 ## Table of Contents
 
@@ -391,3 +398,33 @@ If you have any feedback on this course (e.g. bugs, confusing explanations, part
 # if is_local or check_password():
 
 section_home()
+
+
+
+
+
+# ga_code = """
+# <!-- Google tag (gtag.js) -->
+# <script async src="https://www.googletagmanager.com/gtag/js?id=G-*******"></script>
+# <script>
+#     window.dataLayer = window.dataLayer || [];
+#     function gtag(){dataLayer.push(arguments);}
+#     gtag('js', new Date());
+
+#     gtag('config', 'G-*******');
+# </script>
+# """
+
+# import streamlit.components.v1 as components
+
+# components.html(
+#     ga_code,
+#     width=0,
+#     height=0
+# )  # Jav
+
+
+streamlit_analytics.stop_tracking(
+    unsafe_password=st.secrets["analytics_password"],
+    save_to_json=ANALYTICS_PATH.resolve(),
+)

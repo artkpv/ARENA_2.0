@@ -14,6 +14,15 @@ st_dependencies.styling()
 import platform
 is_local = (platform.processor() != "")
 
+ANALYTICS_PATH = instructions_dir / "pages/analytics_04.json"
+if not ANALYTICS_PATH.exists():
+    with open(ANALYTICS_PATH, "w") as f:
+        f.write(r"{}")
+import streamlit_analytics
+streamlit_analytics.start_tracking(
+    load_from_json=ANALYTICS_PATH.resolve(),
+)
+
 def section_0():
 
     st.sidebar.markdown(
@@ -25,9 +34,9 @@ r"""
     <li class='margtop'><a class='contents-el' href='#introduction'>Introduction</a></li>
     <li class='margtop'><a class='contents-el' href='#content-learning-objectives'>Content & Learning Objectives</a></li>
     <li><ul class="contents">
-        <li><a class='contents-el' href='#110125-optimizers'>1️⃣ Optimizers</a></li>
-        <li><a class='contents-el' href='#1010125-weights-and-biases'>2️⃣ Weights and Biases</a></li>
-        <li><a class='contents-el' href='#12510125-bonus'>3️⃣ Bonus</a></li>
+        <li><a class='contents-el' href='#1-optimizers'>1️⃣ Optimizers</a></li>
+        <li><a class='contents-el' href='#2-weights-and-biases'>2️⃣ Weights and Biases</a></li>
+        <li><a class='contents-el' href='#3-bonus'>3️⃣ Bonus</a></li>
     </ul></li>
     <li class='margtop'><a class='contents-el' href='#setup'>Setup</a></li>
 </ul></li>""", unsafe_allow_html=True)
@@ -95,8 +104,6 @@ from torchvision import datasets
 from torch.utils.data import DataLoader, Subset
 from typing import Callable, Iterable, Tuple, Optional, Type
 from jaxtyping import Float
-import pytorch_lightning as pl
-from pytorch_lightning.loggers import CSVLogger, WandbLogger
 from dataclasses import dataclass
 from tqdm.notebook import tqdm
 from pathlib import Path
@@ -118,11 +125,7 @@ import part4_optimization.tests as tests
 device = t.device("cuda" if t.cuda.is_available() else "cpu")
 
 MAIN = __name__ == "__main__"
-
 ```
-
-
-
 """, unsafe_allow_html=True)
 
 
@@ -1880,3 +1883,9 @@ def page():
     func()
 
 page()
+
+
+streamlit_analytics.stop_tracking(
+    unsafe_password=st.secrets["analytics_password"],
+    save_to_json=ANALYTICS_PATH.resolve(),
+)

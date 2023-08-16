@@ -18,12 +18,13 @@ import einops
 
 update_layout_set = {"xaxis_range", "yaxis_range", "hovermode", "xaxis_title", "yaxis_title", "colorbar", "colorscale", "coloraxis", "title_x", "bargap", "bargroupgap", "xaxis_tickformat", "yaxis_tickformat", "title_y", "legend_title_text", "xaxis_showgrid", "xaxis_gridwidth", "xaxis_gridcolor", "yaxis_showgrid", "yaxis_gridwidth", "yaxis_gridcolor", "showlegend", "xaxis_tickmode", "yaxis_tickmode", "margin", "xaxis_visible", "yaxis_visible", "bargap", "bargroupgap", "coloraxis_showscale", "xaxis_tickangle"}
 
-def imshow(tensor, renderer=None, **kwargs):
+def imshow(tensor: t.Tensor, renderer=None, **kwargs):
     kwargs_post = {k: v for k, v in kwargs.items() if k in update_layout_set}
     kwargs_pre = {k: v for k, v in kwargs.items() if k not in update_layout_set}
     facet_labels = kwargs_pre.pop("facet_labels", None)
     border = kwargs_pre.pop("border", False)
     return_fig = kwargs_pre.pop("return_fig", False)
+    text = kwargs_pre.pop("text", None)
     if "color_continuous_scale" not in kwargs_pre:
         kwargs_pre["color_continuous_scale"] = "RdBu"
     if "color_continuous_midpoint" not in kwargs_pre:
@@ -40,6 +41,23 @@ def imshow(tensor, renderer=None, **kwargs):
     if border:
         fig.update_xaxes(showline=True, linewidth=1, linecolor='black', mirror=True)
         fig.update_yaxes(showline=True, linewidth=1, linecolor='black', mirror=True)
+    if text:
+        if tensor.ndim == 2:
+            # if 2D, then we assume text is a list of lists of strings
+            assert isinstance(text[0], list)
+            assert isinstance(text[0][0], str)
+            text = [text]
+        else:
+            # if 3D, then text is either repeated for each facet, or different
+            assert isinstance(text[0], list)
+            if isinstance(text[0][0], str):
+                text = [text for _ in range(len(fig.data))]
+        for i, _text in enumerate(text):
+            fig.data[i].update(
+                text=_text, 
+                texttemplate="%{text}", 
+                textfont={"size": 12}
+            )
     return fig if return_fig else fig.show(renderer=renderer)
 
 
@@ -180,21 +198,36 @@ def hist(tensor, renderer=None, **kwargs):
         kwargs_post["hovermode"] = "x unified"
     if "autosize" not in kwargs_post:
         kwargs_post["autosize"] = False
-    fig = px.histogram(x=arr, **kwargs_pre).update_layout(**kwargs_post)
+    
+    # If `arr` has a list of arrays, then just doing px.histogram doesn't work annoyingly enough
+    # This is janky, even for my functions!
+    if isinstance(arr, list) and isinstance(arr[0], np.ndarray):
+        assert "marginal" not in kwargs_pre, "Can't use `marginal` with a list of arrays"
+        for thing_to_move_from_pre_to_post in ["title", "template", "height", "width", "labels"]:
+            if thing_to_move_from_pre_to_post in kwargs_pre:
+                kwargs_post[thing_to_move_from_pre_to_post] = kwargs_pre.pop(thing_to_move_from_pre_to_post)
+        if "labels" in kwargs_post:
+            kwargs_post["xaxis_title_text"] = kwargs_post["labels"].get("x", "")
+            kwargs_post["yaxis_title_text"] = kwargs_post["labels"].get("y", "")
+            del kwargs_post["labels"]
+        fig = go.Figure(layout=go.Layout(**kwargs_post))
+        if "nbins" in kwargs_pre:
+            kwargs_pre["nbinsx"] = int(kwargs_pre.pop("nbins"))
+        for x in arr:
+            fig.add_trace(go.Histogram(x=x, name=names.pop(0) if names is not None else None, **kwargs_pre))
+    else:
+        fig = px.histogram(x=arr, **kwargs_pre).update_layout(**kwargs_post)
+        if names is not None:
+            for i in range(len(fig.data)):
+                fig.data[i]["name"] = names[i // 2 if "marginal" in kwargs_pre else i]
+            
     if add_mean_line:
         if arr.ndim == 1:
             fig.add_vline(x=arr.mean(), line_width=3, line_dash="dash", line_color="black", annotation_text=f"Mean = {arr.mean():.3f}", annotation_position="top")
         elif arr.ndim == 2:
             for i in range(arr.shape[0]):
                 fig.add_vline(x=arr[i].mean(), line_width=3, line_dash="dash", line_color="black", annotation_text=f"Mean = {arr.mean():.3f}", annotation_position="top")
-    if names is not None:
-        for i in range(len(fig.data)):
-            fig.data[i]["name"] = names[i // 2 if "marginal" in kwargs_pre else i]
-    else:
-        fig.update_layout(modebar_add=[])
     return fig if return_fig else fig.show(renderer=renderer)
-
-
 
 
 
